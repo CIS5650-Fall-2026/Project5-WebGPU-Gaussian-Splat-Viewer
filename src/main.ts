@@ -19,6 +19,7 @@ import { assert } from './utils/util';
   }
   
   const device = await adapter.requestDevice({
+    requiredFeatures: adapter.features.has('shader-f16') ? ['shader-f16'] : [],
     requiredLimits: { 
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
       maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize

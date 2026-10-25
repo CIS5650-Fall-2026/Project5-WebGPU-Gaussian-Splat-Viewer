@@ -1,0 +1,93 @@
+{
+  "runtime": "Dawn Node WebGPU / D3D12",
+  "date": "2026-10-25T15:17:30.790Z",
+  "synthetic": [],
+  "scenes": [
+    {
+      "full": true,
+      "halfFeature": true,
+      "points": 1063091,
+      "width": 1280,
+      "height": 720,
+      "tile": false,
+      "half": false,
+      "size": 256,
+      "elapsed_ms": 38.55479999999807,
+      "mean": 5.1359953703703705e-05,
+      "max": 1,
+      "lit": 787900
+    },
+    {
+      "full": true,
+      "halfFeature": true,
+      "points": 1063091,
+      "width": 1280,
+      "height": 720,
+      "tile": false,
+      "half": true,
+      "size": 256,
+      "elapsed_ms": 31.838000000003376,
+      "mean": 0.03279911747685185,
+      "max": 7,
+      "lit": 787991
+    },
+    {
+      "full": true,
+      "halfFeature": true,
+      "points": 1063091,
+      "width": 1280,
+      "height": 720,
+      "tile": false,
+      "half": false,
+      "size": 256,
+      "elapsed_ms": 27.157700000003388,
+      "mean": 5.027488425925926e-05,
+      "max": 1,
+      "lit": 787900
+    },
+    {
+      "full": true,
+      "halfFeature": true,
+      "points": 1063091,
+      "width": 1280,
+      "height": 720,
+      "tile": true,
+      "half": false,
+      "size": 256,
+      "elapsed_ms": 1107.1992000000027,
+      "mean": 0.31303059895833335,
+      "max": 33,
+      "lit": 791937
+    },
+    {
+      "full": true,
+      "halfFeature": true,
+      "points": 1063091,
+      "width": 1280,
+      "height": 720,
+      "tile": true,
+      "half": true,
+      "size": 256,
+      "elapsed_ms": 749.6349999999948,
+      "mean": 0.31337456597222224,
+      "max": 33,
+      "lit": 792035
+    },
+    {
+      "full": true,
+      "halfFeature": true,
+      "points": 1063091,
+      "width": 1280,
+      "height": 720,
+      "tile": true,
+      "half": false,
+      "size": 256,
+      "elapsed_ms": 601.7810000000027,
+      "mean": 0.31303059895833335,
+      "max": 33,
+      "lit": 791937
+    }
+  ],
+  "errors": [],
+  "elapsed_note": "Validation wall time includes readback, CPU comparison, and lazy setup; not a steady-state benchmark"
+}

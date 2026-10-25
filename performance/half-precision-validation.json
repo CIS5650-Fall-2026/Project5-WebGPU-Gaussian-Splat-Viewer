@@ -1,0 +1,84 @@
+{
+  "scene": "bicycle, 100000 uniformly sampled points",
+  "camera_preset": 0,
+  "width": 640,
+  "height": 360,
+  "comparison": "RGB absolute difference in 8-bit channel values against the same device in full precision, workgroup size 256",
+  "zero_scale_and_recovery": "passed on both devices",
+  "supported": true,
+  "results": [
+    {
+      "halfDevice": true,
+      "half": false,
+      "size": 64,
+      "mean": 3.0381944444444444e-05,
+      "max": 1,
+      "lit": 156082
+    },
+    {
+      "halfDevice": true,
+      "half": false,
+      "size": 128,
+      "mean": 3.18287037037037e-05,
+      "max": 1,
+      "lit": 156082
+    },
+    {
+      "halfDevice": true,
+      "half": false,
+      "size": 256,
+      "mean": 3.472222222222222e-05,
+      "max": 1,
+      "lit": 156082
+    },
+    {
+      "halfDevice": true,
+      "half": true,
+      "size": 64,
+      "mean": 0.008122106481481482,
+      "max": 3,
+      "lit": 156083
+    },
+    {
+      "halfDevice": true,
+      "half": true,
+      "size": 128,
+      "mean": 0.008110532407407407,
+      "max": 3,
+      "lit": 156083
+    },
+    {
+      "halfDevice": true,
+      "half": true,
+      "size": 256,
+      "mean": 0.008103298611111111,
+      "max": 3,
+      "lit": 156083
+    },
+    {
+      "halfDevice": false,
+      "half": false,
+      "size": 64,
+      "mean": 4.1956018518518515e-05,
+      "max": 1,
+      "lit": 156082
+    },
+    {
+      "halfDevice": false,
+      "half": false,
+      "size": 128,
+      "mean": 3.472222222222222e-05,
+      "max": 1,
+      "lit": 156082
+    },
+    {
+      "halfDevice": false,
+      "half": false,
+      "size": 256,
+      "mean": 4.050925925925926e-05,
+      "max": 1,
+      "lit": 156082
+    }
+  ],
+  "errors": []
+}

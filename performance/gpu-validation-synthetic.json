@@ -1,0 +1,240 @@
+{
+  "runtime": "Dawn Node WebGPU / D3D12",
+  "date": "2026-10-25T15:17:02.404Z",
+  "synthetic": [
+    {
+      "count": 0,
+      "half": false,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0,
+      "max": 0,
+      "lit": 0,
+      "passed": true
+    },
+    {
+      "count": 0,
+      "half": false,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0,
+      "max": 0,
+      "lit": 0,
+      "passed": true
+    },
+    {
+      "count": 2,
+      "half": false,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.018607123870281767,
+      "max": 1,
+      "lit": 1881,
+      "passed": true
+    },
+    {
+      "count": 2,
+      "half": false,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.03088538091969801,
+      "max": 1,
+      "lit": 4335,
+      "passed": true
+    },
+    {
+      "count": 1024,
+      "half": false,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.025518341307814992,
+      "max": 1,
+      "lit": 1263,
+      "passed": true
+    },
+    {
+      "count": 1024,
+      "half": false,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.020132692747654998,
+      "max": 1,
+      "lit": 2923,
+      "passed": true
+    },
+    {
+      "count": 1025,
+      "half": false,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.014885699096225412,
+      "max": 1,
+      "lit": 1881,
+      "passed": true
+    },
+    {
+      "count": 1025,
+      "half": false,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.024250743536948068,
+      "max": 1,
+      "lit": 4359,
+      "passed": true
+    },
+    {
+      "count": 4097,
+      "half": false,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.029771398192450824,
+      "max": 1,
+      "lit": 1881,
+      "passed": true
+    },
+    {
+      "count": 4097,
+      "half": false,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.03568977350720659,
+      "max": 1,
+      "lit": 4347,
+      "passed": true
+    },
+    {
+      "count": 0,
+      "half": true,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0,
+      "max": 0,
+      "lit": 0,
+      "passed": true
+    },
+    {
+      "count": 0,
+      "half": true,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0,
+      "max": 0,
+      "lit": 0,
+      "passed": true
+    },
+    {
+      "count": 2,
+      "half": true,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.023923444976076555,
+      "max": 1,
+      "lit": 1881,
+      "passed": true
+    },
+    {
+      "count": 2,
+      "half": true,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.03546099290780142,
+      "max": 1,
+      "lit": 4335,
+      "passed": true
+    },
+    {
+      "count": 1024,
+      "half": true,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.03508771929824561,
+      "max": 1,
+      "lit": 1267,
+      "passed": true
+    },
+    {
+      "count": 1024,
+      "half": true,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.027453671928620454,
+      "max": 1,
+      "lit": 2927,
+      "passed": true
+    },
+    {
+      "count": 1025,
+      "half": true,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.025518341307814992,
+      "max": 1,
+      "lit": 1881,
+      "passed": true
+    },
+    {
+      "count": 1025,
+      "half": true,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.029741477922672156,
+      "max": 1,
+      "lit": 4359,
+      "passed": true
+    },
+    {
+      "count": 4097,
+      "half": true,
+      "width": 33,
+      "height": 19,
+      "overflow": false,
+      "mean": 0.03189792663476874,
+      "max": 1,
+      "lit": 1881,
+      "passed": true
+    },
+    {
+      "count": 4097,
+      "half": true,
+      "width": 47,
+      "height": 31,
+      "overflow": false,
+      "mean": 0.038435140700068635,
+      "max": 1,
+      "lit": 4347,
+      "passed": true
+    },
+    {
+      "count": 64,
+      "half": false,
+      "width": 129,
+      "height": 129,
+      "overflow": true,
+      "mean": 0.006089377641568015,
+      "max": 1,
+      "lit": 9151,
+      "passed": true
+    }
+  ],
+  "scenes": [],
+  "errors": [],
+  "elapsed_note": "Validation wall time includes readback, CPU comparison, and lazy setup; not a steady-state benchmark"
+}

@@ -1,0 +1,63 @@
+<!doctype html>
+<h1>Tile compositor checks</h1>
+<pre id="status">Running</pre>
+<script type="module">
+import getTiles from '/src/renderers/tile-renderer.ts';
+import { get_sorter } from '/src/sort/sort.ts';
+const status = document.querySelector('#status');
+try {
+    const adapter = await navigator.gpu.requestAdapter();
+    const device = await adapter.requestDevice({ requiredLimits: { maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize } });
+    const report = { tests: [], errors: [] };
+    device.pushErrorScope('validation');
+    const floatBits = x => new Uint32Array(new Float32Array([x]).buffer)[0];
+    for (const count of [0, 2, 1024, 1025]) {
+        const sorter = get_sorter(Math.max(1, count), device);
+        const splats = device.createBuffer({ size: Math.max(1, count) * 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        const data = new Float32Array(Math.max(1, count) * 16);
+        const ids = new Uint32Array(Math.max(1, count)), depths = new Uint32Array(Math.max(1, count));
+        for (let i = 0; i < count; i++) {
+            data.set([0, 0, .5, 1, 1, 1, 32, 0, 1, 0, 1, 0, i === 0 ? 1 : 0, 0, i === 0 ? 0 : 1, .5], i * 16);
+            ids[i] = i;
+            depths[i] = ~floatBits(i === 0 ? 1 : 2 + i);
+        }
+        device.queue.writeBuffer(splats, 0, data);
+        device.queue.writeBuffer(sorter.ping_pong[0].sort_indices_buffer, 0, ids);
+        device.queue.writeBuffer(sorter.ping_pong[0].sort_depths_buffer, 0, depths);
+        device.queue.writeBuffer(sorter.sort_info_buffer, 0, new Uint32Array([count]));
+        const tiles = getTiles(device, 'rgba8unorm', splats, sorter, count);
+        for (const [width, height] of [[33, 19], [47, 31]]) {
+            tiles.resize(width, height);
+            const output = device.createTexture({ size: [width, height], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+            const read = device.createBuffer({ size: 256 * height, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+            const enc = device.createCommandEncoder();
+            tiles.bin(enc);
+            sorter.sort(enc);
+            tiles.frame(enc, output.createView());
+            enc.copyTextureToBuffer({ texture: output }, { buffer: read, bytesPerRow: 256 }, [width, height]);
+            device.queue.submit([enc.finish()]);
+            await read.mapAsync(GPUMapMode.READ);
+            const pixels = new Uint8Array(read.getMappedRange());
+            const offset = Math.floor(height / 2) * 256 + Math.floor(width / 2) * 4;
+            const center = Array.from(pixels.slice(offset, offset + 4));
+            const expected = count === 0 ? [0, 0, 0, 255] : count === 2 ? [128, 0, 64, 255] : [128, 0, 127, 255];
+            if (center.some((v, i) => Math.abs(v - expected[i]) > 1))
+                throw Error(JSON.stringify({ count, width, center, expected }));
+            report.tests.push({ count, width, height, center, passed: true });
+            read.unmap();
+            read.destroy();
+            output.destroy();
+            // Restore unsorted input before another binning pass.
+            device.queue.writeBuffer(sorter.ping_pong[0].sort_indices_buffer, 0, ids);
+            device.queue.writeBuffer(sorter.ping_pong[0].sort_depths_buffer, 0, depths);
+        }
+    }
+    const error = await device.popErrorScope();
+    if (error)
+        report.errors.push(error.message);
+    status.textContent = JSON.stringify(report, null, 2);
+}
+catch (error) {
+    status.textContent = error.stack;
+}
+</script>

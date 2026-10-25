@@ -1,4 +1,4 @@
-// shader implementing gpu radix sort.
+// shader implementing gpu radix sort
 
 override histogram_sg_size = 32u;
 override histogram_wg_size = 256u;
@@ -84,6 +84,7 @@ fn zero_histograms(@builtin(global_invocation_id) gid : vec3<u32>, @builtin(num_
         }
         else {
             keys[infos.keys_size + cur_index - b] = 0xFFFFFFFFu;
+            payload_a[infos.keys_size + cur_index - b] = 0u;
         }
     }
 }
@@ -279,10 +280,8 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
     // kv_filling is done in the scatter_even and scatter_odd functions to account for front and backbuffer switch
     // in the reference there is a nulling of the smmem here, was moved to line 251 as smem is used in the code until then
 
-    // The following implements conceptually the same as the
-    // Emulate a "match" operation with broadcasts for small subgroup sizes (line 665 ff in scatter.glsl)
-    // The difference however is, that instead of using subrgoupBroadcast each thread stores
-    // its current number in the smem at lid.x, and then looks up their neighbouring values of the subgroup
+    // The following implements conceptually the same as the Emulate a "match" operation with broadcasts for small subgroup sizes (line 665 ff in scatter.glsl)
+    // The difference however is, that instead of using subrgoupBroadcast each thread stores its current number in the smem at lid.x, and then looks up their neighbouring values of the subgroup
     let subgroup_id = lid.x / histogram_sg_size;
     let subgroup_offset = subgroup_id * histogram_sg_size;
     let subgroup_tid = lid.x - subgroup_offset;
@@ -292,6 +291,10 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
         let digit = extractBits(u_val, pass_ * rs_radix_log2, rs_radix_log2);
         // smem[lid.x] = digit;
         atomicStore(&smem[lid.x], digit);
+
+        workgroupBarrier();
+
+
         var count = 0u;
         var rank = 0u;
         
@@ -306,6 +309,8 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
         }
         
         kr[i] = (count << 16u) | rank;
+
+        workgroupBarrier();
     }
     
     zero_smem(lid.x);   // now zeroing the smmem as we are now accumulating the histogram there
@@ -331,8 +336,7 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
         }
         workgroupBarrier();
     }
-    // kr filling is now done and contains the total offset for each value to be able to 
-    // move the values into order without having any collisions
+    // kr filling is now done and contains the total offset for each value to be able to move the values into order without having any collisions
     
     // we do not check for single work groups (is currently not assumed to occur very often)
     let partition_offset = lid.x + partitions_base_offset();    // is correct, the partitions pointer does not change
@@ -367,8 +371,8 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
             var partition_base_prev = partition_base - rs_radix_size;
             var exc                 = 0u;
 
-            // Note: Each workgroup invocation can proceed independently.
-            // Subgroups and workgroups do NOT have to coordinate.
+            // Note: Each workgroup invocation can proceed independently
+            // Subgroups and workgroups do NOT have to coordinate
             while true {
                 //let prev = atomicLoad(&histograms[partition_offset]);// histograms[partition_offset + partition_base_prev];
                 let prev = atomicLoad(&histograms[partition_base_prev + partition_offset]);// histograms[partition_offset + partition_base_prev];
@@ -382,8 +386,7 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
                     continue;
                 }
 
-                // otherwise save the exclusive scan and atomically transform the
-                // reduction into an inclusive prefix status math: reduction + 1 = prefix
+                // otherwise save the exclusive scan and atomically transform the reduction into an inclusive prefix status math: reduction + 1 = prefix
                 scatter_smem[lid.x] = exc;
 
                 if wid.x < nwg.x - 1u { // only store when inbetween, skip for last workgrup

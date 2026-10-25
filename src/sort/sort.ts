@@ -1,6 +1,6 @@
 /*
-    This file implements a gpu version of radix sort. A good introduction to general purpose radix sort can
-    be found here: http://www.codercorner.com/RadixSortRevisited.htm
+    This file implements a gpu version of radix sort
+    A good introduction to general purpose radix sort can be found here: http://www.codercorner.com/RadixSortRevisited.htm
 
     The gpu radix sort implemented here is a reimplementation of the vulkan radix sort found in the fuchsia repos: https://fuchsia.googlesource.com/fuchsia/+/refs/heads/main/src/graphics/lib/compute/radix_sort/
     Currently only the sorting for floating point key-value pairs is implemented, as only this is needed for this project
@@ -29,7 +29,7 @@ function create_ping_pong_buffer(adjusted_count: number, keysize: number, device
     // payload
     sort_indices_buffer: device.createBuffer({
       label: 'ping pong sort indices',
-      size: keysize * 4,
+      size: adjusted_count * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     }),
     // key
@@ -219,8 +219,8 @@ function get_scatter_histogram_sizes(keysize: number) {
   };
 }
 
-// caclulates and allocates a buffer that is sufficient for holding all needed information for
-// sorting. This includes the histograms and the temporary scatter buffer
+// caclulates and allocates a buffer that is sufficient for holding all needed information for sorting
+// This includes the histograms and the temporary scatter buffer
 function create_histogram_buffer(keysize: number, device: GPUDevice) {
   // currently only a few different key bits are supported, maybe has to be extended
   // assert!(key_bits == 32 || key_bits == 64 || key_bits == 16);

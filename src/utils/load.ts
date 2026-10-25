@@ -13,7 +13,7 @@ const c_size_3d_gaussian =
 
 export type PointCloud = Awaited<ReturnType<typeof load>>;
 
-export async function load(file: string, device: GPUDevice) {
+export async function load(file: string, device: GPUDevice, gaussianFraction: number = 1.0) {
   const blob = new Blob([file]);
   const arrayBuffer = await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -54,7 +54,20 @@ export async function load(file: string, device: GPUDevice) {
       }
   }
 
-  const num_points = vertexCount;
+  if (
+    !Number.isFinite(gaussianFraction) ||
+    gaussianFraction <= 0 ||
+    gaussianFraction > 1
+  ) {
+    throw new Error('gaussianFraction must be in the range (0, 1].');
+  }
+
+
+  
+  const num_points = Math.max(
+    1,
+    Math.floor(vertexCount * gaussianFraction)
+  );
 
   log(`num points: ${num_points}`);
   log(`processing loaded attributes...`);

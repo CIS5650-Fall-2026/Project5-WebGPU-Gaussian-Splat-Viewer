@@ -35,7 +35,11 @@ fn vs_main(
     let pos = vec4<f32>(a.x, a.y, b.x, 1.);
 
     // TODO: MVP calculations
-    out.position = pos;
+    // out.position = pos;
+
+    // Transform the Gaussian's world-space position into camera clip space
+    // The model transform is identity because positions are already in world space
+    out.position = camera.proj * camera.view * pos;
 
     return out;
 }

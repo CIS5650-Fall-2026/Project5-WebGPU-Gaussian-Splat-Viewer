@@ -41,7 +41,7 @@ struct CameraUniforms {
     proj: mat4x4<f32>,
     proj_inv: mat4x4<f32>,
     viewport: vec2<f32>,
-    focal: vec2<f32>
+    focal: vec2<f32>,
 };
 
 struct RenderSettings {
@@ -56,10 +56,29 @@ struct Gaussian {
 };
 
 struct Splat {
-    //TODO: store information for 2D splat rendering
+    ndc: vec2<f32>,
+    size: vec2<f32>,
+    conic: vec3<f32>,
+    op: f32,
+    color: vec3<f32>,
 };
 
-//TODO: bind your data here
+// read only
+@group(0) @binding(0) 
+var<uniform> camera: CameraUniforms;
+@group(0) @binding(1)
+var<uniform> settings: RenderSettings;
+
+// gaussian input
+@group(1) @binding(0) 
+var<storage, read> gaussians: array<Gaussian>;
+// splats output
+@group(1) @binding(1)
+var<storage, read_write> splats: array<Splat>;
+@group(1) @binding(2)
+var<storage, read> sh_coefs: array<u32>;
+
+// read_write
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
 @group(2) @binding(1)
@@ -69,10 +88,33 @@ var<storage, read_write> sort_indices : array<u32>;
 @group(2) @binding(3)
 var<storage, read_write> sort_dispatch: DispatchIndirect;
 
+// My own fcns for making the math a little easier
+fn diag(v: vec3<f32>) -> mat3x3<f32> {
+    return mat3x3<f32>(
+        vec3<f32>(v.x, 0.0, 0.0),
+        vec3<f32>(0.0, v.y, 0.0),
+        vec3<f32>(0.0, 0.0, v.z),
+    );
+}
+
+// assumes normalized
+fn q_to_mat(q: vec4<f32>) -> mat3x3<f32> {
+    return mat3x3<f32>(
+        vec3<f32>(1 - 2 * (q.y * q.y + q.z * q.z), 2 * (q.x * q.y + q.w * q.z), 2 * (q.x * q.z - q.w * q.y)),
+        vec3<f32>(2 * (q.x * q.y - q.w * q.z), 1 - 2 * (q.x * q.x + q.z * q.z), 2 * (q.y * q.z + q.w * q.x)),
+        vec3<f32>(2 * (q.x * q.z + q.w * q.y), 2 * (q.y * q.z - q.w * q.x), 1 - 2 * (q.x * q.x + q.y * q.y)),
+    );
+}
+
 /// reads the ith sh coef from the storage buffer 
 fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
-    //TODO: access your binded sh_coeff, see load.ts for how it is stored
-    return vec3<f32>(0.0);
+    let sh_idx = (splat_idx * 48 + 3 * c_idx) / 2u;
+
+    let a = unpack2x16float(sh_coefs[sh_idx]);
+    let b = unpack2x16float(sh_coefs[sh_idx + 1u]);
+
+    if (c_idx % 2u == 1u) { return vec3f(a.y, b.x, b.y); }
+    return vec3f(a.x, a.y, b.x);
 }
 
 // spherical harmonics evaluation with Condon–Shortley phase
@@ -111,8 +153,96 @@ fn computeColorFromSH(dir: vec3<f32>, v_idx: u32, sh_deg: u32) -> vec3<f32> {
 @compute @workgroup_size(workgroupSize,1,1)
 fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
     let idx = gid.x;
-    //TODO: set up pipeline as described in instruction
+    if (idx >= arrayLength(&gaussians)) { return; }
+
+    // unpacking data
+    let g = gaussians[idx];
+    let xy = unpack2x16float(g.pos_opacity[0]);
+    let zo = unpack2x16float(g.pos_opacity[1]);
+    let pos = vec3f(xy.x, xy.y, zo.x);
+    let rot_wx = unpack2x16float(g.rot[0]);
+    let rot_yz = unpack2x16float(g.rot[1]);
+    let scale_xy = unpack2x16float(g.scale[0]);
+    let scale_zw = unpack2x16float(g.scale[1]);
+    let raw_opacity = zo.y;
+
+    // making data usable
+    // splat opacity
+    let opacity = 1.0 / (1.0 + exp(-raw_opacity));
+
+    let rot_q = vec4<f32>(rot_wx.y, rot_yz.x, rot_yz.y, rot_wx.x);
+    let scale = exp(vec3<f32>(scale_xy.x, scale_xy.y, scale_zw.x)) * settings.gaussian_scaling;
+
+    let rMat = q_to_mat(normalize(rot_q));
+    let sMat = diag(scale);
+    let mMat = rMat * sMat;
+
+    // camera and pos info
+    let t = (camera.view * vec4f(pos, 1.0)).xyz;
+    let W = mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz);
+    let fx = camera.focal.x;
+    let fy = camera.focal.y;
+
+    let clip = camera.proj * vec4f(t, 1.0);
+    // splat ndc
+    let ndc = clip.xyz / clip.w;
+
+    if (t.z <= 0.0 || ndc.z < 0 || ndc.z > 1 || abs(ndc.x) > 1.2 || abs(ndc.y) > 1.2) { return; }
+
+    // finding gaussian and splat info
+    let cov = mMat * transpose(mMat);
+    
+    let jacobian = mat3x3f(
+        vec3f(fx / t.z, 0.0, 0.0),
+        vec3f(0.0, fy / t.z, 0.0),
+        vec3f(-fx * t.x / (t.z * t.z), -fy * t.y / (t.z * t.z), 0.0),
+    );
+    let jw = jacobian * W;
+    let cov2d = jw * cov * transpose(jw);
+
+    let a = cov2d[0][0] + 0.3;
+    let b = cov2d[0][1];
+    let c = cov2d[1][1] + 0.3;
+
+    // determinant
+    let det = a * c - b * b;
+    if (det == 0.0) { return; }
+
+    // index for accessing splats
+    let i = atomicAdd(&sort_infos.keys_size, 1u);
+
+    let m = (a + c) / 2.0;
+    // larger eigenvalue
+    let lambMAX = m + sqrt(max(0.1, m * m - det));
+
+    // radius (largest eigenvalue converted to pixels)
+    let r = ceil(3 * sqrt(lambMAX));
+
+    // splat size
+    let ndcRadius = vec2f(
+        (r * 2.0) / camera.viewport.x,
+        (r * 2.0) / camera.viewport.y
+    );
+
+    // splat conic
+    let conic = vec3f(c, -b, a) / det;
+
+    let cam_pos = camera.view_inv[3].xyz;
+    let viewDir = normalize(pos - cam_pos);
+    // we use same index as the one we use to access gaussian data
+    let color = computeColorFromSH(viewDir, idx, u32(settings.sh_deg));
+
+    splats[i].ndc = ndc.xy;
+    splats[i].size = ndcRadius;
+    splats[i].op = opacity;
+    splats[i].conic = conic;
+    splats[i].color = color;
+
+    sort_depths[i] = bitcast<u32>(100.0 - t.z);
+    sort_indices[i] = i;
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+
+    if (i % keys_per_dispatch == 0u) { atomicAdd(&sort_dispatch.dispatch_x, 1u); }
 }

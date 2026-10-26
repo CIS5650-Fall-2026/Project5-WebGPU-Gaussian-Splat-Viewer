@@ -74,7 +74,7 @@ fn preprocess_tiles(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_
         return;
     }
 
-    let s = atomicAdd(&splat_counter, 1u);
+    let s = atomicAdd(&tile_counters.splat_count, 1u);
     splats[s] = make_splat(p);
 
     // reserve a contiguous block of keys; their order does not matter since they get sorted
@@ -96,11 +96,17 @@ fn preprocess_tiles(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_
     }
 }
 
-// clamps the key count to the sort buffer capacity and sets up the indirect sort dispatch
+// clamps the key count to the sort buffer capacity and sets up the indirect dispatches of the
+// sort and of the tile range identification (256 keys per workgroup, grid-stride beyond 65535 groups)
 @compute @workgroup_size(1)
 fn finalize_tiles() {
     let capacity = u32(render_settings.key_capacity);
-    let n = min(atomicLoad(&sort_infos.keys_size), capacity);
+    let requested = atomicLoad(&sort_infos.keys_size);
+    let n = min(requested, capacity);
     atomicStore(&sort_infos.keys_size, n);
     atomicStore(&sort_dispatch.dispatch_x, (n + sortKeysPerDispatch - 1u) / sortKeysPerDispatch);
+    tile_counters.range_dispatch_x = min((n + 255u) / 256u, 65535u);
+    tile_counters.range_dispatch_y = 1u;
+    tile_counters.range_dispatch_z = 1u;
+    tile_counters.requested_keys = requested;
 }

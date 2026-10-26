@@ -88,8 +88,17 @@ var<storage, read_write> sort_depths : array<u32>;
 var<storage, read_write> sort_indices : array<u32>;
 @group(2) @binding(3)
 var<storage, read_write> sort_dispatch: DispatchIndirect;
+// tile renderer only (kept in one buffer to stay within 8 storage buffers per stage)
+struct TileCounters {
+    splat_count: atomic<u32>,
+    // indirect dispatch of the tile range identification
+    range_dispatch_x: u32,
+    range_dispatch_y: u32,
+    range_dispatch_z: u32,
+    requested_keys: u32,    // keys before clamping to the sort buffer capacity
+}
 @group(2) @binding(4)
-var<storage, read_write> splat_counter: atomic<u32>;   // tile renderer only
+var<storage, read_write> tile_counters: TileCounters;
 
 fn sigmoid(x: f32) -> f32 {
     return 1.0 / (1.0 + exp(-x));

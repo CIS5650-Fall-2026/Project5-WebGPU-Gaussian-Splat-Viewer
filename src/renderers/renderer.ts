@@ -1,7 +1,7 @@
 import { load } from '../utils/load';
 import { Pane } from 'tweakpane';
 import * as TweakpaneFileImportPlugin from 'tweakpane-plugin-file-import';
-import { default as get_renderer_gaussian, GaussianRenderer } from './gaussian-renderer';
+import { default as get_renderer_gaussian, GaussianRenderer, GaussianRenderMode } from './gaussian-renderer';
 import { default as get_renderer_pointcloud } from './point-cloud-renderer';
 import { Camera, load_camera_presets} from '../camera/camera';
 import { CameraControl } from '../camera/camera-control';
@@ -10,6 +10,9 @@ import { time, timeReturn } from '../utils/simple-console';
 export interface Renderer {
   frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => void,
   camera_buffer: GPUBuffer,
+  // optional profiling hooks
+  after_submit?: () => void,
+  stats_text?: () => string,
 }
 
 export default async function init(
@@ -49,6 +52,8 @@ export default async function init(
     fps: 0.0,
     gaussian_multiplier: 1,
     renderer: 'pointcloud',
+    gaussian_mode: 'quad' as GaussianRenderMode,
+    gpu_stats: '',
     frustum_culling: true,
     workgroup_size: 256,
     ply_file: '',
@@ -60,6 +65,7 @@ export default async function init(
     r.set_gaussian_multiplier(params.gaussian_multiplier);
     r.set_frustum_culling(params.frustum_culling);
     r.set_workgroup_size(params.workgroup_size);
+    r.set_mode(params.gaussian_mode);
   }
 
   const pane = new Pane({
@@ -83,6 +89,20 @@ export default async function init(
     });
   }
   {
+    // quad: sorted instanced quads + hardware blending, tile: tile based sort + compute rasterizer
+    pane.addInput(params, 'gaussian_mode', {
+      options: { quad: 'quad', tile: 'tile' },
+    }).on('change', (e) => {
+      gaussian_renderer?.set_mode(e.value);
+    });
+  }
+  {
+    pane.addMonitor(params, 'gpu_stats', {
+      multiline: true,
+      lineCount: 7,
+    });
+  }
+  {
     pane.addInput(params, 'ply_file', {
       view: 'file-input',
       lineCount: 3,
@@ -94,7 +114,7 @@ export default async function init(
       if (uploadedFile) {
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
-        gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer, canvas);
         apply_gaussian_params(gaussian_renderer);
         renderers = {
           pointcloud: pointcloud_renderer,
@@ -174,6 +194,8 @@ export default async function init(
       const texture_view = context.getCurrentTexture().createView();
       renderer.frame(encoder, texture_view);
       device.queue.submit([encoder.finish()]);
+      renderer.after_submit?.();
+      params.gpu_stats = renderer.stats_text?.() ?? '';
     }
     requestAnimationFrame(frame);
   }

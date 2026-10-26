@@ -18,7 +18,10 @@ import { assert } from './utils/util';
     return;
   }
   
+ // optional features: f16 preprocess (extra credit) and GPU profiling
+  const optional_features: GPUFeatureName[] = ['shader-f16', 'timestamp-query'];
   const device = await adapter.requestDevice({
+    requiredFeatures: optional_features.filter(f => adapter.features.has(f)),
     requiredLimits: { 
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
       maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize

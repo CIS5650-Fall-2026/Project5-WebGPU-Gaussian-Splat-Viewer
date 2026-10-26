@@ -3,13 +3,19 @@ import preprocessCommonWGSL from '../shaders/preprocess_common.wgsl';
 import preprocessWGSL from '../shaders/preprocess.wgsl';
 import preprocessEntriesWGSL from '../shaders/preprocess_entries.wgsl';
 import renderWGSL from '../shaders/gaussian.wgsl';
+import tileRasterWGSL from '../shaders/tile_raster.wgsl';
+import blitWGSL from '../shaders/blit.wgsl';
 import { get_sorter,c_histogram_block_rows,C } from '../sort/sort';
 import { Renderer } from './renderer';
+import { GpuStats } from '../utils/gpu-stats';
+
+export type GaussianRenderMode = 'quad' | 'tile';
 
 export interface GaussianRenderer extends Renderer {
   set_gaussian_multiplier: (value: number) => void,
   set_frustum_culling: (enabled: boolean) => void,
   set_workgroup_size: (size: number) => void,
+  set_mode: (mode: GaussianRenderMode) => void,
 }
 
 // Utility to create GPU buffers
@@ -29,15 +35,22 @@ const createBuffer = (
 const c_size_splat = 8 * 4;
 const c_size_render_settings = 4 * 4;
 const c_max_workgroups_per_dim = 65535;
+const c_tile_size = 16;
+const c_sort_keys_per_dispatch = C.histogram_wg_size * c_histogram_block_rows;
+// upper bound of (tile, gaussian) keys for the tile renderer: 16M keys ~ 256 MB of sort buffers
+const c_max_tile_keys = 1 << 24;
+const c_tile_keys_per_gaussian = 8;
 
 export default function get_renderer(
   pc: PointCloud,
   device: GPUDevice,
   presentation_format: GPUTextureFormat,
   camera_buffer: GPUBuffer,
+  canvas: HTMLCanvasElement,
 ): GaussianRenderer {
 
   const sorter = get_sorter(pc.num_points, device);
+  let mode: GaussianRenderMode = 'quad';
 
   // ===============================================
   //            Initialize GPU Buffers
@@ -66,8 +79,10 @@ export default function get_renderer(
   const update_render_settings = () => device.queue.writeBuffer(render_settings_buffer, 0, render_settings);
 
   // only used by the tile renderer, but part of the shared preprocess layout
-  const splat_counter_buffer = createBuffer(
-    device, 'splat counter', 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  // splat_count, range dispatch (x, y, z), requested_keys
+  const tile_counters_buffer = createBuffer(
+    device, 'tile counters', 5 * 4,
+    GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
   );
 
   // ===============================================
@@ -111,7 +126,8 @@ export default function get_renderer(
       entryPoint,
       constants: {
         workgroupSize: workgroup_size,
-        sortKeysPerDispatch: C.histogram_wg_size * c_histogram_block_rows,
+        sortKeysPerDispatch: c_sort_keys_per_dispatch,
+        tileSize: c_tile_size,
       },
     },
   });
@@ -136,17 +152,18 @@ export default function get_renderer(
     ],
   });
 
-  const sort_bind_group = device.createBindGroup({
+  const create_sort_bind_group = (s: ReturnType<typeof get_sorter>) => device.createBindGroup({
     label: 'sort',
     layout: preprocess_layouts[2],
     entries: [
-      { binding: 0, resource: { buffer: sorter.sort_info_buffer } },
-      { binding: 1, resource: { buffer: sorter.ping_pong[0].sort_depths_buffer } },
-      { binding: 2, resource: { buffer: sorter.ping_pong[0].sort_indices_buffer } },
-      { binding: 3, resource: { buffer: sorter.sort_dispatch_indirect_buffer } },
-      { binding: 4, resource: { buffer: splat_counter_buffer } },
+      { binding: 0, resource: { buffer: s.sort_info_buffer } },
+      { binding: 1, resource: { buffer: s.ping_pong[0].sort_depths_buffer } },
+      { binding: 2, resource: { buffer: s.ping_pong[0].sort_indices_buffer } },
+      { binding: 3, resource: { buffer: s.sort_dispatch_indirect_buffer } },
+      { binding: 4, resource: { buffer: tile_counters_buffer } },
     ],
   });
+  const sort_bind_group = create_sort_bind_group(sorter);
 
 
   // ===============================================
@@ -189,30 +206,143 @@ export default function get_renderer(
   });
 
   // ===============================================
+  //    Tile Renderer Resources (created on demand)
+  // ===============================================
+  type TileResources = ReturnType<typeof create_tile_resources>;
+  let tile: TileResources | undefined;
+
+  function create_tile_resources() {
+    const max_keys_by_limit = Math.floor(device.limits.maxStorageBufferBindingSize / 4) - 2 * c_sort_keys_per_dispatch;
+    const capacity = Math.max(1, Math.min(pc.num_points * c_tile_keys_per_gaussian, c_max_tile_keys, max_keys_by_limit));
+    const tile_sorter = get_sorter(capacity, device);
+    render_settings[3] = capacity;
+    update_render_settings();
+
+    const max_tiles = Math.ceil(device.limits.maxTextureDimension2D / c_tile_size) ** 2;
+    const tile_ranges_buffer = createBuffer(
+      device, 'tile ranges', max_tiles * 8, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    );
+
+    const raster_module = device.createShaderModule({ label: 'tile raster', code: tileRasterWGSL });
+    const ranges_pipeline = device.createComputePipeline({
+      label: 'tile ranges',
+      layout: 'auto',
+      compute: { module: raster_module, entryPoint: 'identify_ranges' },
+    });
+    const raster_pipeline = device.createComputePipeline({
+      label: 'tile rasterize',
+      layout: 'auto',
+      compute: { module: raster_module, entryPoint: 'rasterize' },
+    });
+    const ranges_bind_group = device.createBindGroup({
+      label: 'tile ranges',
+      layout: ranges_pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: camera_buffer } },
+        { binding: 1, resource: { buffer: tile_sorter.sort_info_buffer } },
+        { binding: 2, resource: { buffer: tile_sorter.ping_pong[0].sort_depths_buffer } },
+        { binding: 3, resource: { buffer: tile_ranges_buffer } },
+      ],
+    });
+
+    const blit_module = device.createShaderModule({ label: 'blit', code: blitWGSL });
+    const blit_pipeline = device.createRenderPipeline({
+      label: 'blit',
+      layout: 'auto',
+      vertex: { module: blit_module, entryPoint: 'vs_main' },
+      fragment: { module: blit_module, entryPoint: 'fs_main', targets: [{ format: presentation_format }] },
+      primitive: { topology: 'triangle-list' },
+    });
+
+    // output texture and the bind groups using it follow the canvas size
+    let output: GPUTexture | undefined;
+    let raster_bind_group: GPUBindGroup;
+    let blit_bind_group: GPUBindGroup;
+    const ensure_output = (width: number, height: number) => {
+      if (output && output.width === width && output.height === height) return;
+      output?.destroy();
+      output = device.createTexture({
+        label: 'tile raster output',
+        size: [width, height],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      const view = output.createView();
+      raster_bind_group = device.createBindGroup({
+        label: 'tile rasterize',
+        layout: raster_pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: camera_buffer } },
+          { binding: 3, resource: { buffer: tile_ranges_buffer } },
+          { binding: 4, resource: { buffer: splat_buffer } },
+          { binding: 5, resource: { buffer: tile_sorter.ping_pong[0].sort_indices_buffer } },
+          { binding: 6, resource: view },
+        ],
+      });
+      blit_bind_group = device.createBindGroup({
+        label: 'blit',
+        layout: blit_pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: view }],
+      });
+    };
+
+    return {
+      capacity,
+      sorter: tile_sorter,
+      sort_bind_group: create_sort_bind_group(tile_sorter),
+      preprocess_pipeline: create_preprocess_pipeline('preprocess_tiles'),
+      finalize_pipeline: create_preprocess_pipeline('finalize_tiles'),
+      tile_ranges_buffer,
+      ranges_pipeline,
+      ranges_bind_group,
+      raster_pipeline,
+      blit_pipeline,
+      ensure_output,
+      raster_bind_group: () => raster_bind_group,
+      blit_bind_group: () => blit_bind_group,
+    };
+  }
+
+  // ===============================================
+  //    Profiling
+  // ===============================================
+  // timestamps: 0 preprocess begin, 1 preprocess end, 2 raster begin, 3 raster end, 4 blit begin, 5 blit end
+  const stats: Record<GaussianRenderMode, GpuStats> = {
+    // counters: visible gaussians
+    quad: new GpuStats(device, 4, [[0, 1], [1, 2], [2, 3], [0, 3]], 1),
+    // counters: visible gaussians, requested keys, sorted keys
+    tile: new GpuStats(device, 6, [[0, 1], [1, 2], [2, 3], [4, 5], [0, 5]], 3),
+  };
+
+  // ===============================================
   //    Command Encoder Functions
   // ===============================================
-  const dispatch_preprocess = (encoder: GPUCommandEncoder, pipeline: GPUComputePipeline) => {
+  const dispatch_preprocess = (pass: GPUComputePassEncoder, pipeline: GPUComputePipeline, sort_group: GPUBindGroup) => {
     const num_workgroups = Math.ceil(pc.num_points / workgroup_size);
     const x = Math.min(num_workgroups, c_max_workgroups_per_dim);
     const y = Math.ceil(num_workgroups / x);
 
-    const pass = encoder.beginComputePass({ label: 'preprocess' });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, camera_bind_group);
     pass.setBindGroup(1, gaussian_bind_group);
-    pass.setBindGroup(2, sort_bind_group);
+    pass.setBindGroup(2, sort_group);
     pass.dispatchWorkgroups(x, y);
-    pass.end();
   };
 
-  const preprocess = (encoder: GPUCommandEncoder) => {
+  const frame_quad = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+    const s = stats.quad;
+
     // reset the visible gaussian count and the sort dispatch size
     device.queue.writeBuffer(sorter.sort_info_buffer, 0, nulling_data);
     device.queue.writeBuffer(sorter.sort_dispatch_indirect_buffer, 0, nulling_data);
-    dispatch_preprocess(encoder, preprocess_pipeline);
-  };
 
-  const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+    const pre = encoder.beginComputePass({ label: 'preprocess', timestampWrites: s.writes(0, 1) });
+    dispatch_preprocess(pre, preprocess_pipeline, sort_bind_group);
+    pre.end();
+    s.copy_counter(encoder, 0, sorter.sort_info_buffer);
+
+    sorter.sort(encoder);
+
     // instance count = number of visible gaussians written by the preprocess step
     encoder.copyBufferToBuffer(sorter.sort_info_buffer, 0, indirect_draw_buffer, 4, 4);
 
@@ -226,23 +356,102 @@ export default function get_renderer(
           storeOp: 'store',
         }
       ],
+      timestampWrites: s.writes(2, 3),
     });
     pass.setPipeline(render_pipeline);
     pass.setBindGroup(0, render_bind_group);
     pass.drawIndirect(indirect_draw_buffer, 0);
     pass.end();
+
+    s.resolve(encoder);
   };
+
+  const frame_tile = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+    tile ??= create_tile_resources();
+    const t = tile;
+    const s = stats.tile;
+    const width = canvas.width;
+    const height = canvas.height;
+    t.ensure_output(width, height);
+
+    device.queue.writeBuffer(t.sorter.sort_info_buffer, 0, nulling_data);
+    device.queue.writeBuffer(t.sorter.sort_dispatch_indirect_buffer, 0, nulling_data);
+    device.queue.writeBuffer(tile_counters_buffer, 0, nulling_data);
+    encoder.clearBuffer(t.tile_ranges_buffer, 0, Math.ceil(width / c_tile_size) * Math.ceil(height / c_tile_size) * 8);
+
+    // duplicate every gaussian into one key per overlapped tile
+    const pre = encoder.beginComputePass({ label: 'preprocess tiles', timestampWrites: s.writes(0, 1) });
+    dispatch_preprocess(pre, t.preprocess_pipeline, t.sort_bind_group);
+    pre.setPipeline(t.finalize_pipeline);
+    pre.dispatchWorkgroups(1);
+    pre.end();
+    s.copy_counter(encoder, 0, tile_counters_buffer);
+    s.copy_counter(encoder, 1, tile_counters_buffer, 16);
+    s.copy_counter(encoder, 2, t.sorter.sort_info_buffer);
+
+    t.sorter.sort(encoder);
+
+    const raster = encoder.beginComputePass({ label: 'tile raster', timestampWrites: s.writes(2, 3) });
+    raster.setPipeline(t.ranges_pipeline);
+    raster.setBindGroup(0, t.ranges_bind_group);
+    raster.dispatchWorkgroupsIndirect(tile_counters_buffer, 4);
+    raster.setPipeline(t.raster_pipeline);
+    raster.setBindGroup(0, t.raster_bind_group());
+    raster.dispatchWorkgroups(Math.ceil(width / c_tile_size), Math.ceil(height / c_tile_size));
+    raster.end();
+
+    const blit = encoder.beginRenderPass({
+      label: 'blit',
+      colorAttachments: [{ view: texture_view, loadOp: 'clear', storeOp: 'store' }],
+      timestampWrites: s.writes(4, 5),
+    });
+    blit.setPipeline(t.blit_pipeline);
+    blit.setBindGroup(0, t.blit_bind_group());
+    blit.draw(3);
+    blit.end();
+
+    s.resolve(encoder);
+  };
+
+  const fmt = (ms: number) => ms.toFixed(3).padStart(7);
 
   // ===============================================
   //    Return Render Object
   // ===============================================
   return {
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
-      preprocess(encoder);
-      sorter.sort(encoder);
-      render(encoder, texture_view);
+      if (mode === 'tile') {
+        frame_tile(encoder, texture_view);
+      } else {
+        frame_quad(encoder, texture_view);
+      }
     },
     camera_buffer,
+
+    after_submit: () => stats[mode].after_submit(),
+    stats_text: () => {
+      const s = stats[mode];
+      const d = s.durations_ms;
+      if (mode === 'quad') {
+        return [
+          `visible     ${s.counters[0]} / ${pc.num_points}`,
+          `preprocess ${fmt(d[0])} ms`,
+          `sort       ${fmt(d[1])} ms`,
+          `render     ${fmt(d[2])} ms`,
+          `gpu total  ${fmt(d[3])} ms`,
+        ].join('\n');
+      }
+      const overflow = s.counters[1] > s.counters[2] ? ' (overflow!)' : '';
+      return [
+        `visible     ${s.counters[0]} / ${pc.num_points}`,
+        `tile keys   ${s.counters[2]} / ${tile?.capacity ?? 0}${overflow}`,
+        `preprocess ${fmt(d[0])} ms`,
+        `sort       ${fmt(d[1])} ms`,
+        `rasterize  ${fmt(d[2])} ms`,
+        `blit       ${fmt(d[3])} ms`,
+        `gpu total  ${fmt(d[4])} ms`,
+      ].join('\n');
+    },
 
     set_gaussian_multiplier: (value: number) => {
       render_settings[0] = value;
@@ -255,6 +464,12 @@ export default function get_renderer(
     set_workgroup_size: (size: number) => {
       workgroup_size = size;
       preprocess_pipeline = create_preprocess_pipeline('preprocess');
+      if (tile) {
+        tile.preprocess_pipeline = create_preprocess_pipeline('preprocess_tiles');
+      }
+    },
+    set_mode: (m: GaussianRenderMode) => {
+      mode = m;
     },
   };
 }

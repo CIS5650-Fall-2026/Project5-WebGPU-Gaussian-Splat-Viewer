@@ -1,6 +1,7 @@
 import { PointCloud } from '../utils/load';
 import pointcloud_wgsl from '../shaders/point_cloud.wgsl';
 import { Renderer } from './renderer';
+import { GpuStats } from '../utils/gpu-stats';
 
 export default function get_renderer(
   pc: PointCloud,
@@ -39,6 +40,8 @@ export default function get_renderer(
     ],
   });
 
+  const stats = new GpuStats(device, 2, [[0, 1]], 0);
+
   const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
     const pass = encoder.beginRenderPass({
       label: 'point cloud render',
@@ -49,6 +52,7 @@ export default function get_renderer(
           storeOp: 'store',
         }
       ],
+      timestampWrites: stats.writes(0, 1),
     });
     pass.setPipeline(render_pipeline);
     pass.setBindGroup(0, camera_bind_group);
@@ -56,6 +60,7 @@ export default function get_renderer(
 
     pass.draw(pc.num_points);
     pass.end();
+    stats.resolve(encoder);
   };
 
   return {
@@ -64,5 +69,8 @@ export default function get_renderer(
     },
 
     camera_buffer,
+
+    after_submit: () => stats.after_submit(),
+    stats_text: () => `render     ${stats.durations_ms[0].toFixed(3).padStart(7)} ms`,
   };
 }

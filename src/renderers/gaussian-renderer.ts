@@ -16,6 +16,7 @@ export type PreprocessPrecision = 'f32' | 'f16';
 export interface GaussianRenderer extends Renderer {
   set_gaussian_multiplier: (value: number) => void,
   set_frustum_culling: (enabled: boolean) => void,
+  set_tight_bounds: (enabled: boolean) => void,
   set_workgroup_size: (size: number) => void,
   set_mode: (mode: GaussianRenderMode) => void,
   // returns false when f16 is requested but the device lacks `shader-f16`
@@ -37,7 +38,7 @@ const createBuffer = (
 
 // keep in sync with `Splat` in the shaders
 const c_size_splat = 8 * 4;
-const c_size_render_settings = 4 * 4;
+const c_size_render_settings = 8 * 4;
 const c_max_workgroups_per_dim = 65535;
 const c_tile_size = 16;
 const c_sort_keys_per_dispatch = C.histogram_wg_size * c_histogram_block_rows;
@@ -73,8 +74,8 @@ export default function get_renderer(
     new Uint32Array([4, pc.num_points, 0, 0]),
   );
 
-  // gaussian_scaling, sh_deg, frustum_culling, key_capacity
-  const render_settings = new Float32Array([1.0, pc.sh_deg, 1.0, 0.0]);
+  // gaussian_scaling, sh_deg, frustum_culling, key_capacity, tight_bounds, padding
+  const render_settings = new Float32Array([1.0, pc.sh_deg, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
   const render_settings_buffer = createBuffer(
     device, 'render settings', c_size_render_settings,
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -474,6 +475,10 @@ export default function get_renderer(
     },
     set_frustum_culling: (enabled: boolean) => {
       render_settings[2] = enabled ? 1.0 : 0.0;
+      update_render_settings();
+    },
+    set_tight_bounds: (enabled: boolean) => {
+      render_settings[4] = enabled ? 1.0 : 0.0;
       update_render_settings();
     },
     set_workgroup_size: (size: number) => {

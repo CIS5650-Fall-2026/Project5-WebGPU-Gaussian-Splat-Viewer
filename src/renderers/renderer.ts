@@ -55,6 +55,7 @@ export default async function init(
     gaussian_mode: 'quad' as GaussianRenderMode,
     gpu_stats: '',
     frustum_culling: true,
+    tight_bounds: true,
     workgroup_size: 256,
     precision: 'f32' as PreprocessPrecision,
     ply_file: '',
@@ -65,6 +66,7 @@ export default async function init(
   function apply_gaussian_params(r: GaussianRenderer) {
     r.set_gaussian_multiplier(params.gaussian_multiplier);
     r.set_frustum_culling(params.frustum_culling);
+    r.set_tight_bounds(params.tight_bounds);
     r.set_workgroup_size(params.workgroup_size);
     r.set_mode(params.gaussian_mode);
     r.set_precision(params.precision);
@@ -159,6 +161,12 @@ export default async function init(
   {
     pane.addInput(params, 'frustum_culling').on('change', (e) => {
       gaussian_renderer?.set_frustum_culling(e.value);
+    });
+  }
+  {
+    // opacity aware, axis aligned splat bounds instead of the 3 sigma circle
+    pane.addInput(params, 'tight_bounds').on('change', (e) => {
+      gaussian_renderer?.set_tight_bounds(e.value);
     });
   }
   {

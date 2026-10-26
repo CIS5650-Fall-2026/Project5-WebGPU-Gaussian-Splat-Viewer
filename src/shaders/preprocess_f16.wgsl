@@ -166,7 +166,11 @@ fn project_gaussian(idx: u32) -> Projected {
     let det_inv = 1.0 / det;
     let mid = 0.5 * (cov2d.x + cov2d.z);
     let lambda1 = mid + sqrt(max(0.1, mid * mid - det));
-    let radius = ceil(3.0 * sqrt(lambda1));
+    let opacity = f32(1.0h / (1.0h + exp(-z_op.y)));
+    let extent = splat_extent(cov2d, lambda1, opacity);
+    if extent.x <= 0.0 {
+        return p;
+    }
 
     let cam_pos = camera.view_inv[3].xyz;
     let dir = vec3<f16>(normalize(pos - cam_pos));
@@ -174,9 +178,9 @@ fn project_gaussian(idx: u32) -> Projected {
     p.visible = true;
     p.ndc = ndc;
     p.view_z = view_pos.z;
-    p.radius = radius;
+    p.extent = extent;
     p.conic = vec3<f32>(cov2d.z * det_inv, -cov2d.y * det_inv, cov2d.x * det_inv);
     p.color = vec3<f32>(computeColorFromSH(dir, idx, u32(render_settings.sh_deg)));
-    p.opacity = f32(1.0h / (1.0h + exp(-z_op.y)));
+    p.opacity = opacity;
     return p;
 }

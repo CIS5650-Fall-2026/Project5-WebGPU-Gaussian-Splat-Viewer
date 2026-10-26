@@ -108,3 +108,20 @@ First numbers (bonsai, preset 3, 1280×800, RTX 4050 Laptop GPU, headless Chrome
   Need a proper benchmark sweep to quantify.
 
 Machine: AMD Ryzen 7 8845HS, NVIDIA GeForce RTX 4050 Laptop GPU (driver 616.56), Chrome 155 (adapter = nvidia/lovelace).
+
+## Optimization — tight, opacity-aware splat bounds (`tight_bounds`, default on)
+- Reference: square around the 3σ circle of the major axis (radius = 3·sqrt(λ_max)).
+- Tight: axis-aligned box of the ellipse region where alpha ≥ 1/255 (everything else is discarded anyway):
+  k = min(3, sqrt(2·ln(255·opacity))) standard deviations, per axis sqrt(Σ'xx), sqrt(Σ'yy)
+  (exact bounding box of the ellipse). Gaussians with 255·opacity ≤ 1 are culled entirely.
+- Used for both the quad size and the tile rect.
+- Bicycle, default camera, 1280×800:
+| | tight off | tight on |
+|---|---|---|
+| visible gaussians | 1,063,091 | 974,698 (−8%) |
+| quad render pass | 9.78 ms | 2.11 ms (4.6×) |
+| quad gpu total | 14.13 ms | 6.04 ms |
+| tile keys | 5.58 M | 2.30 M |
+| tile sort / raster | 12.70 / 6.31 ms | 6.79 / 3.48 ms |
+| tile gpu total | 20.05 ms | 11.20 ms |
+| PSNR vs off | – | 75.6 dB (quad), 70.3 dB (tile) |

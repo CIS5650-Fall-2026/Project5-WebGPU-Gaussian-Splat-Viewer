@@ -66,8 +66,8 @@ fn preprocess_tiles(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_
     let center = ndc_to_pixel(p.ndc);
     let tile_f = f32(tileSize);
     let tiles_f = vec2<f32>(tiles);
-    let rect_min = vec2<u32>(clamp(floor((center - p.radius) / tile_f), vec2<f32>(0.0), tiles_f));
-    let rect_max = vec2<u32>(clamp(ceil((center + p.radius) / tile_f), vec2<f32>(0.0), tiles_f));
+    let rect_min = vec2<u32>(clamp(floor((center - p.extent) / tile_f), vec2<f32>(0.0), tiles_f));
+    let rect_max = vec2<u32>(clamp(ceil((center + p.extent) / tile_f), vec2<f32>(0.0), tiles_f));
     let extent = rect_max - rect_min;
     let num_keys = extent.x * extent.y;
     if num_keys == 0u {

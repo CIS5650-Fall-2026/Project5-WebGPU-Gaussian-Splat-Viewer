@@ -37,6 +37,10 @@ struct RenderSettings {
     sh_deg: f32,
     frustum_culling: f32,   // > 0.5 => cull gaussians outside 1.2x the view frustum
     key_capacity: f32,      // tile renderer: number of sort keys that fit into the sort buffers
+    tight_bounds: f32,      // > 0.5 => opacity aware, axis aligned splat bounds (see splat_extent)
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 struct Gaussian {
@@ -62,7 +66,7 @@ struct Projected {
     visible: bool,
     ndc: vec2<f32>,
     view_z: f32,
-    radius: f32,            // pixels
+    extent: vec2<f32>,      // quad half extent in pixels
     conic: vec3<f32>,
     color: vec3<f32>,
     opacity: f32,
@@ -104,6 +108,23 @@ fn sigmoid(x: f32) -> f32 {
     return 1.0 / (1.0 + exp(-x));
 }
 
+// Half extent (pixels) of the screen space quad of a splat.
+// Default: a square around the 3 sigma circle of the major axis, like the reference implementation.
+// Tight bounds: the axis aligned box of the ellipse outside of which alpha < 1/255 (those fragments are
+// discarded anyway): k sigma with k = sqrt(2 ln(255 opacity)), capped at 3 sigma, using the per axis
+// standard deviations sqrt(cov_xx), sqrt(cov_yy). Returns 0 when the splat can never reach alpha 1/255.
+fn splat_extent(cov2d: vec3<f32>, lambda1: f32, opacity: f32) -> vec2<f32> {
+    if render_settings.tight_bounds > 0.5 {
+        let op = 255.0 * opacity;
+        if op <= 1.0 {
+            return vec2<f32>(0.0);
+        }
+        let k = min(3.0, sqrt(2.0 * log(op)));
+        return ceil(k * sqrt(vec2<f32>(cov2d.x, cov2d.z)));
+    }
+    return vec2<f32>(ceil(3.0 * sqrt(lambda1)));
+}
+
 fn ndc_to_pixel(ndc: vec2<f32>) -> vec2<f32> {
     // WebGPU framebuffer y points down, NDC y points up
     return vec2<f32>((ndc.x * 0.5 + 0.5) * camera.viewport.x, (0.5 - ndc.y * 0.5) * camera.viewport.y);
@@ -114,7 +135,7 @@ fn make_splat(p: Projected) -> Splat {
     s.pos_ndc = p.ndc;
     s.conic_xy = p.conic.xy;
     s.conic_z = p.conic.z;
-    s.size = pack2x16float(vec2<f32>(p.radius) * 2.0 / camera.viewport);
+    s.size = pack2x16float(p.extent * 2.0 / camera.viewport);
     s.color_rg = pack2x16float(p.color.rg);
     s.color_b_opacity = pack2x16float(vec2<f32>(p.color.b, p.opacity));
     return s;

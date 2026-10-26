@@ -125,3 +125,25 @@ Machine: AMD Ryzen 7 8845HS, NVIDIA GeForce RTX 4050 Laptop GPU (driver 616.56),
 | tile sort / raster | 12.70 / 6.31 ms | 6.79 / 3.48 ms |
 | tile gpu total | 20.05 ms | 11.20 ms |
 | PSNR vs off | – | 75.6 dB (quad), 70.3 dB (tile) |
+
+## Performance analysis — benchmark sweep (INCOMPLETE)
+Harness (outside the repo, in the session scratchpad): puppeteer-core drives the dev server, toggles GUI options and
+records the `gpu_stats` monitor per configuration. Subsampled bicycle scenes (25/50/75%, random, seed 0) were
+generated at `C:/dev/UPENN/CIS5650/scenes/bicycle_sub/` for the "number of gaussians" question.
+The full sweep was killed by the OS-memory watchdog after 7 configs (bicycle 263 MB PLY + Chrome + dev server).
+Partial results, bicycle default camera, 1280×800, tight bounds on:
+| config | visible | preprocess | sort | render | total |
+|---|---|---|---|---|---|
+| point cloud | – | – | – | 2.61 | 2.61 |
+| quad f32 wg32 | 974,698 | 0.84 | 2.97 | 2.00 | 5.82 |
+| quad f32 wg64 | 974,698 | 1.02 | 3.23 | 2.15 | 6.40 |
+| quad f32 wg128 | 974,698 | 0.83 | 3.09 | 2.11 | 6.03 |
+| quad f32 wg256 | 974,698 | 0.83 | 3.09 | 2.10 | 6.02 |
+| quad f16 wg32 | 999,793 | 0.85 | 3.17 | 2.05 | 6.07 |
+| quad f16 wg64 | 999,793 | 0.85 | 3.16 | 2.05 | 6.06 |
+Observations so far: workgroup size barely matters for preprocess (memory bound, ~120 B read per gaussian);
+point cloud render pass (2.6 ms, 1M points) is comparable to the gaussian quad pass after tight bounds.
+Open question: f16 keeps ~25k more gaussians than f32 under the 1/255 opacity cull — check f16 sigmoid near the
+threshold.
+TODO: rerun remaining configs (f16 wg128/256, tile mode grid, tight on/off, culling on/off per preset,
+bonsai, subsampled scenes) — run scenes one at a time to keep memory down.

@@ -1,6 +1,7 @@
 import { PointCloud } from '../utils/load';
 import preprocessCommonWGSL from '../shaders/preprocess_common.wgsl';
 import preprocessWGSL from '../shaders/preprocess.wgsl';
+import preprocessF16WGSL from '../shaders/preprocess_f16.wgsl';
 import preprocessEntriesWGSL from '../shaders/preprocess_entries.wgsl';
 import renderWGSL from '../shaders/gaussian.wgsl';
 import tileRasterWGSL from '../shaders/tile_raster.wgsl';
@@ -10,12 +11,15 @@ import { Renderer } from './renderer';
 import { GpuStats } from '../utils/gpu-stats';
 
 export type GaussianRenderMode = 'quad' | 'tile';
+export type PreprocessPrecision = 'f32' | 'f16';
 
 export interface GaussianRenderer extends Renderer {
   set_gaussian_multiplier: (value: number) => void,
   set_frustum_culling: (enabled: boolean) => void,
   set_workgroup_size: (size: number) => void,
   set_mode: (mode: GaussianRenderMode) => void,
+  // returns false when f16 is requested but the device lacks `shader-f16`
+  set_precision: (precision: PreprocessPrecision) => boolean,
 }
 
 // Utility to create GPU buffers
@@ -112,10 +116,13 @@ export default function get_renderer(
     bindGroupLayouts: preprocess_layouts,
   });
 
-  const preprocess_module = device.createShaderModule({
-    label: 'preprocess',
-    code: preprocessCommonWGSL + preprocessWGSL + preprocessEntriesWGSL,
+  const create_preprocess_module = (precision: PreprocessPrecision) => device.createShaderModule({
+    label: `preprocess ${precision}`,
+    code: precision === 'f16'
+      ? 'enable f16;\n' + preprocessCommonWGSL + preprocessF16WGSL + preprocessEntriesWGSL
+      : preprocessCommonWGSL + preprocessWGSL + preprocessEntriesWGSL,
   });
+  let preprocess_module = create_preprocess_module('f32');
 
   let workgroup_size = C.histogram_wg_size;
   const create_preprocess_pipeline = (entryPoint: string) => device.createComputePipeline({
@@ -413,6 +420,14 @@ export default function get_renderer(
     s.resolve(encoder);
   };
 
+  const rebuild_preprocess_pipelines = () => {
+    preprocess_pipeline = create_preprocess_pipeline('preprocess');
+    if (tile) {
+      tile.preprocess_pipeline = create_preprocess_pipeline('preprocess_tiles');
+      tile.finalize_pipeline = create_preprocess_pipeline('finalize_tiles');
+    }
+  };
+
   const fmt = (ms: number) => ms.toFixed(3).padStart(7);
 
   // ===============================================
@@ -463,10 +478,13 @@ export default function get_renderer(
     },
     set_workgroup_size: (size: number) => {
       workgroup_size = size;
-      preprocess_pipeline = create_preprocess_pipeline('preprocess');
-      if (tile) {
-        tile.preprocess_pipeline = create_preprocess_pipeline('preprocess_tiles');
-      }
+      rebuild_preprocess_pipelines();
+    },
+    set_precision: (precision: PreprocessPrecision) => {
+      if (precision === 'f16' && !device.features.has('shader-f16')) return false;
+      preprocess_module = create_preprocess_module(precision);
+      rebuild_preprocess_pipelines();
+      return true;
     },
     set_mode: (m: GaussianRenderMode) => {
       mode = m;

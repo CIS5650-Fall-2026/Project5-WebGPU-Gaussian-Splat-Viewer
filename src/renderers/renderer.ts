@@ -1,7 +1,7 @@
 import { load } from '../utils/load';
 import { Pane } from 'tweakpane';
 import * as TweakpaneFileImportPlugin from 'tweakpane-plugin-file-import';
-import { default as get_renderer_gaussian, GaussianRenderer, GaussianRenderMode } from './gaussian-renderer';
+import { default as get_renderer_gaussian, GaussianRenderer, GaussianRenderMode, PreprocessPrecision } from './gaussian-renderer';
 import { default as get_renderer_pointcloud } from './point-cloud-renderer';
 import { Camera, load_camera_presets} from '../camera/camera';
 import { CameraControl } from '../camera/camera-control';
@@ -56,6 +56,7 @@ export default async function init(
     gpu_stats: '',
     frustum_culling: true,
     workgroup_size: 256,
+    precision: 'f32' as PreprocessPrecision,
     ply_file: '',
     cam_file: '',
   };
@@ -66,6 +67,7 @@ export default async function init(
     r.set_frustum_culling(params.frustum_culling);
     r.set_workgroup_size(params.workgroup_size);
     r.set_mode(params.gaussian_mode);
+    r.set_precision(params.precision);
   }
 
   const pane = new Pane({
@@ -164,6 +166,16 @@ export default async function init(
       options: { '32': 32, '64': 64, '128': 128, '256': 256 },
     }).on('change', (e) => {
       gaussian_renderer?.set_workgroup_size(e.value);
+    });
+  }
+  {
+    // preprocess compute precision (f16 needs the `shader-f16` feature)
+    const precision_input = pane.addInput(params, 'precision', {
+      options: { f32: 'f32', f16: 'f16' },
+    });
+    precision_input.disabled = !device.features.has('shader-f16');
+    precision_input.on('change', (e) => {
+      gaussian_renderer?.set_precision(e.value);
     });
   }
 

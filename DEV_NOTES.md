@@ -83,9 +83,28 @@ Follows the reference CUDA rasterizer:
 - Culling bonus: gaussians whose tile rect is empty (center within the 1.2× guard band but splat off-screen)
   are dropped entirely.
 
-First numbers (bonsai, preset 3, 1280×800, RTX laptop GPU, headless Chrome):
+First numbers (bonsai, preset 3, 1280×800, RTX 4050 Laptop GPU, headless Chrome 155):
 | mode | visible | preprocess | sort | render/raster | total |
 |---|---|---|---|---|---|
 | quad | 135,862 | 0.16 ms | 0.56 ms | 2.85 ms | 3.57 ms |
 | tile | 114,600 (1.12M keys) | 0.34 ms | 3.64 ms | 1.25 ms | 5.29 ms |
 → rasterization itself is >2× faster, but sorting ~8× more keys dominates. Output is visually identical.
+
+## Extra credit — f16 preprocess (`precision: f16`)
+- `preprocess_f16.wgsl` is a drop-in math backend (same function names), module prefixed with `enable f16;`;
+  requires the `shader-f16` device feature (dropdown disabled otherwise).
+- f16: decoding (`bitcast<vec2<f16>>` straight from the packed u32s — no unpack to f32), SH evaluation
+  (48 coefs, the bulk of the ALU work), quaternion → rotation, 3D covariance, sigmoid.
+- Trick: 3D covariance computed as R (S/s_max)² Rᵀ so all entries are in [0,1]; s/s_max = exp(log_s − log_max)
+  (one subtraction in log space). Multiplied by s_max² after converting to f32. Without this exp(scale)² of small
+  gaussians (scale ≈ e⁻¹⁰) underflows f16.
+- Stays f32: view/projection (world positions need the mantissa) and the EWA projection to pixel space —
+  2D covariance entries reach ~1e6 px² (> f16 max 65504) and conics of large splats are f16 denormals.
+- Quality (bicycle, default camera): f16 vs f32 PSNR 54.2 dB (quad) / 54.3 dB (tile); <0.01% of pixels differ by
+  more than 8/255. Quad vs tile renderer: PSNR 44.1 dB (8-bit framebuffer blending vs f32 compositing + early
+  termination).
+- Perf: preprocess ~1.0–1.1 ms either way on bicycle (1.06M gaussians) — the step is memory bound
+  (24 B gaussian + 96 B SH read per gaussian), so halving ALU precision barely matters on this GPU.
+  Need a proper benchmark sweep to quantify.
+
+Machine: AMD Ryzen 7 8845HS, NVIDIA GeForce RTX 4050 Laptop GPU (driver 616.56), Chrome 155 (adapter = nvidia/lovelace).

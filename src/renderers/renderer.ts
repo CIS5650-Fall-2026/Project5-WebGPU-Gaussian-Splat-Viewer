@@ -119,9 +119,12 @@ export default async function init(
     pane.addInput(
       params,
       'gaussian_multiplier',
-      {min: 0, max: 1.5}
+      {min: 0, max: 1.5} //tweakpane assigns the event 'e' value for us when the slider changes
     ).on('change', (e) => {
       //TODO: Bind constants to the gaussian renderer.
+      if(gaussian_renderer){
+        device.queue.writeBuffer(gaussian_renderer.rendersettings_buffer, 0, new Float32Array([e.value]));
+      }
     });
   }
 

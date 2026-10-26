@@ -21,8 +21,9 @@ import { assert } from './utils/util';
   const device = await adapter.requestDevice({
     requiredLimits: { 
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
-      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize
-     },
+      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize, //max size of the regoin exposed to a shader through one storage-buffer bniding
+      maxBufferSize: adapter.limits.maxBufferSize // max size of one buffer allocated with createBuffer. default is 256 MiB, 
+    },
   });
 
   const canvas = document.querySelector<HTMLCanvasElement>('#webgpu-canvas');

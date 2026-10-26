@@ -61,13 +61,13 @@ export async function load(file: string, device: GPUDevice) {
   time();
 
   // xyz (position), opacity, cov (from rot and scale)
-  const gaussian_3d_buffer = device.createBuffer({
+  const gaussian_3d_buffer = device.createBuffer({ //GPU buffer
     label: 'ply input 3d gaussians data buffer',
     size: num_points * c_size_3d_gaussian,  // buffer size multiple of 4?
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
     mappedAtCreation: true,
   });
-  const gaussian = new Float16Array(gaussian_3d_buffer.getMappedRange());
+  const gaussian = new Float16Array(gaussian_3d_buffer.getMappedRange()); //mapping gives the CPU access to the buffer's contents so it can fill them, array of 2 byte floats
 
   // Spherical harmonic function coeffs
   const sh_buffer = device.createBuffer({
@@ -76,14 +76,14 @@ export async function load(file: string, device: GPUDevice) {
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
     mappedAtCreation: true,
   });
-  const sh = new Float16Array(sh_buffer.getMappedRange());
+  const sh = new Float16Array(sh_buffer.getMappedRange()); 
 
   var readOffset = 0;
   for (let i = 0; i < num_points; i++) {
     const [newReadOffset, rawVertex] = readRawVertex(readOffset, vertexData, propertyTypes);
     readOffset = newReadOffset;
 
-    const o = i * (c_size_3d_gaussian / c_size_float);
+    const o = i * (c_size_3d_gaussian / c_size_float); //index, probably
     const output_offset = i * max_num_coefs * 3;
     
     for (let order = 0; order < num_coefs; ++order) {
@@ -94,7 +94,7 @@ export async function load(file: string, device: GPUDevice) {
         }
     }
 
-    gaussian[o + 0] = rawVertex.x;
+    gaussian[o + 0] = rawVertex.x; //each of these is a short
     gaussian[o + 1] = rawVertex.y;
     gaussian[o + 2] = rawVertex.z;
     gaussian[o + 3] = rawVertex.opacity;
@@ -107,7 +107,7 @@ export async function load(file: string, device: GPUDevice) {
     gaussian[o + 10] = rawVertex.scale_2;
   }
 
-  gaussian_3d_buffer.unmap(); 
+  gaussian_3d_buffer.unmap(); //unmapped from CPU, GPU can now use it
   sh_buffer.unmap();
 
   timeLog();

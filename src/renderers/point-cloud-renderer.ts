@@ -6,11 +6,13 @@ export default function get_renderer(
   pc: PointCloud,
   device: GPUDevice,
   presentation_format: GPUTextureFormat,
-  camera_buffer: GPUBuffer): Renderer {
+  camera_buffer: GPUBuffer): 
+
+  Renderer {
   const render_shader = device.createShaderModule({code: pointcloud_wgsl});
-  const render_pipeline = device.createRenderPipeline({
+  const render_pipeline = device.createRenderPipeline({ //pipeline object
     label: 'render',
-    layout: 'auto',
+    layout: 'auto', //no pipeline layout? also creates bind group layout -> webGpu examines the resources used by the shader entry points and generates the pipeline layout and its bind group layouts automatically
     vertex: {
       module: render_shader,
       entryPoint: 'vs_main',
@@ -33,13 +35,14 @@ export default function get_renderer(
 
   const gaussian_bind_group = device.createBindGroup({
     label: 'point cloud gaussians',
-    layout: render_pipeline.getBindGroupLayout(1),
+    layout: render_pipeline.getBindGroupLayout(1), //layouts in a bindgrouop?
     entries: [
       {binding: 0, resource: { buffer: pc.gaussian_3d_buffer }},
     ],
   });
 
-  const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+  //we're returning this whole thing
+  const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => { //arrow assigns function to variable
     const pass = encoder.beginRenderPass({
       label: 'point cloud render',
       colorAttachments: [

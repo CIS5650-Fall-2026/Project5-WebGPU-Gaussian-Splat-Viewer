@@ -49,9 +49,18 @@ export default async function init(
     fps: 0.0,
     gaussian_multiplier: 1,
     renderer: 'pointcloud',
+    frustum_culling: true,
+    workgroup_size: 256,
     ply_file: '',
     cam_file: '',
   };
+
+  // re-applies the GUI state when a new scene creates a new gaussian renderer
+  function apply_gaussian_params(r: GaussianRenderer) {
+    r.set_gaussian_multiplier(params.gaussian_multiplier);
+    r.set_frustum_culling(params.frustum_culling);
+    r.set_workgroup_size(params.workgroup_size);
+  }
 
   const pane = new Pane({
     title: 'Config',
@@ -86,6 +95,7 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        apply_gaussian_params(gaussian_renderer);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -121,7 +131,19 @@ export default async function init(
       'gaussian_multiplier',
       {min: 0, max: 1.5}
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_gaussian_multiplier(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'frustum_culling').on('change', (e) => {
+      gaussian_renderer?.set_frustum_culling(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'workgroup_size', {
+      options: { '32': 32, '64': 64, '128': 128, '256': 256 },
+    }).on('change', (e) => {
+      gaussian_renderer?.set_workgroup_size(e.value);
     });
   }
 

@@ -1,22 +1,76 @@
+struct CameraUniforms {
+    view: mat4x4<f32>,
+    view_inv: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    proj_inv: mat4x4<f32>,
+    viewport: vec2<f32>,
+    focal: vec2<f32>
+};
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    //TODO: information passed from vertex shader to fragment shader
+    @location(0) @interpolate(flat) color: vec4<f32>,      // rgb + opacity
+    @location(1) @interpolate(flat) conic: vec3<f32>,
+    @location(2) @interpolate(flat) center_px: vec2<f32>,
 };
 
 struct Splat {
-    //TODO: information defined in preprocess compute shader
+    pos_ndc: vec2<f32>,     // center in NDC
+    conic_xy: vec2<f32>,    // inverse 2D covariance (pixel space): a, b
+    conic_z: f32,           // c
+    size: u32,              // f16x2: quad half extent in NDC
+    color_rg: u32,          // f16x2
+    color_b_opacity: u32,   // f16x2
 };
+
+@group(0) @binding(0)
+var<uniform> camera: CameraUniforms;
+@group(0) @binding(1)
+var<storage, read> splats: array<Splat>;
+@group(0) @binding(2)
+var<storage, read> sort_indices: array<u32>;
+
+// triangle strip corners
+const QUAD = array<vec2<f32>, 4>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>(1.0, -1.0),
+    vec2<f32>(-1.0, 1.0),
+    vec2<f32>(1.0, 1.0),
+);
 
 @vertex
 fn vs_main(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    //TODO: reconstruct 2D quad based on information from splat, pass 
+    // instances are drawn in sorted (back to front) order
+    let splat = splats[sort_indices[instance_index]];
+    let size = unpack2x16float(splat.size);
+    let rg = unpack2x16float(splat.color_rg);
+    let b_op = unpack2x16float(splat.color_b_opacity);
+
     var out: VertexOutput;
-    out.position = vec4<f32>(1. ,1. , 0., 1.);
+    out.position = vec4<f32>(splat.pos_ndc + QUAD[vertex_index] * size, 0.0, 1.0);
+    out.color = vec4<f32>(rg, b_op);
+    out.conic = vec3<f32>(splat.conic_xy, splat.conic_z);
+    out.center_px = vec2<f32>(
+        (splat.pos_ndc.x * 0.5 + 0.5) * camera.viewport.x,
+        (0.5 - splat.pos_ndc.y * 0.5) * camera.viewport.y
+    );
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(1.);
+    // offset from the fragment (pixel space, y down) to the splat center
+    let d = in.center_px - in.position.xy;
+    let power = -0.5 * (in.conic.x * d.x * d.x + in.conic.z * d.y * d.y) - in.conic.y * d.x * d.y;
+    if power > 0.0 {
+        discard;
+    }
+    let alpha = min(0.99, in.color.a * exp(power));
+    if alpha < 1.0 / 255.0 {
+        discard;
+    }
+    return vec4<f32>(in.color.rgb, alpha);
 }

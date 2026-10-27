@@ -12,11 +12,14 @@ import { GpuStats } from '../utils/gpu-stats';
 
 export type GaussianRenderMode = 'quad' | 'tile';
 export type PreprocessPrecision = 'f32' | 'f16';
+// 0 final, 1 opaque quads, 2 quad size, 3 quad color, 4 pixel offset (quad mode), 5 splats per tile (tile mode)
+export const debug_views = { final: 0, quads: 1, quad_size: 2, quad_color: 3, pixel_offset: 4, tile_heatmap: 5 };
 
 export interface GaussianRenderer extends Renderer {
   set_gaussian_multiplier: (value: number) => void,
   set_frustum_culling: (enabled: boolean) => void,
   set_tight_bounds: (enabled: boolean) => void,
+  set_debug_view: (view: number) => void,
   set_workgroup_size: (size: number) => void,
   set_mode: (mode: GaussianRenderMode) => void,
   // returns false when f16 is requested but the device lacks `shader-f16`
@@ -74,7 +77,7 @@ export default function get_renderer(
     new Uint32Array([4, pc.num_points, 0, 0]),
   );
 
-  // gaussian_scaling, sh_deg, frustum_culling, key_capacity, tight_bounds, padding
+  // gaussian_scaling, sh_deg, frustum_culling, key_capacity, tight_bounds, debug_view, padding
   const render_settings = new Float32Array([1.0, pc.sh_deg, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
   const render_settings_buffer = createBuffer(
     device, 'render settings', c_size_render_settings,
@@ -210,6 +213,7 @@ export default function get_renderer(
       { binding: 1, resource: { buffer: splat_buffer } },
       // sorting ends after an even number of passes => the result is back in ping_pong[0]
       { binding: 2, resource: { buffer: sorter.ping_pong[0].sort_indices_buffer } },
+      { binding: 3, resource: { buffer: render_settings_buffer } },
     ],
   });
 
@@ -285,6 +289,7 @@ export default function get_renderer(
           { binding: 4, resource: { buffer: splat_buffer } },
           { binding: 5, resource: { buffer: tile_sorter.ping_pong[0].sort_indices_buffer } },
           { binding: 6, resource: view },
+          { binding: 7, resource: { buffer: render_settings_buffer } },
         ],
       });
       blit_bind_group = device.createBindGroup({
@@ -479,6 +484,10 @@ export default function get_renderer(
     },
     set_tight_bounds: (enabled: boolean) => {
       render_settings[4] = enabled ? 1.0 : 0.0;
+      update_render_settings();
+    },
+    set_debug_view: (view: number) => {
+      render_settings[5] = view;
       update_render_settings();
     },
     set_workgroup_size: (size: number) => {

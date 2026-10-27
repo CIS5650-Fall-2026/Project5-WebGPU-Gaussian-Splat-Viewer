@@ -46,6 +46,8 @@ var<storage, read> splats: array<Splat>;
 var<storage, read> sorted_indices: array<u32>;
 @group(0) @binding(6)
 var output: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(7)
+var<uniform> render_settings: array<vec4<f32>, 2>;   // RenderSettings, debug_view = [1].y
 
 fn tile_grid() -> vec2<u32> {
     return (vec2<u32>(camera.viewport) + TILE_SIZE - 1u) / TILE_SIZE;
@@ -58,6 +60,20 @@ fn tile_key_bits(tiles: vec2<u32>) -> u32 {
         return 1u;
     }
     return firstLeadingBit(num_tiles - 1u) + 1u;
+}
+
+// heat ramp: black -> purple -> red -> orange -> yellow
+fn heat(t: f32) -> vec3<f32> {
+    let stops = array<vec3<f32>, 5>(
+        vec3<f32>(0.0, 0.0, 0.0),
+        vec3<f32>(0.33, 0.06, 0.45),
+        vec3<f32>(0.80, 0.18, 0.30),
+        vec3<f32>(0.98, 0.55, 0.10),
+        vec3<f32>(0.99, 0.95, 0.55),
+    );
+    let x = clamp(t, 0.0, 1.0) * 4.0;
+    let i = min(u32(x), 3u);
+    return mix(stops[i], stops[i + 1u], x - f32(i));
 }
 
 @compute @workgroup_size(256)
@@ -102,6 +118,14 @@ fn rasterize(
     let range = workgroupUniformLoad(&tile_range);
     let total = range.y - range.x;
     let rounds = (total + BATCH_SIZE - 1u) / BATCH_SIZE;
+
+    // debug: number of splats overlapping the tile, 0 .. 1024+ mapped to a heat ramp
+    if render_settings[1].y == 5.0 {
+        if inside {
+            textureStore(output, pix, vec4<f32>(heat(f32(total) / 1024.0), 1.0));
+        }
+        return;
+    }
 
     var done = !inside;
     if done {

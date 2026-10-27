@@ -1,7 +1,7 @@
 import { load } from '../utils/load';
 import { Pane } from 'tweakpane';
 import * as TweakpaneFileImportPlugin from 'tweakpane-plugin-file-import';
-import { default as get_renderer_gaussian, GaussianRenderer, GaussianRenderMode, PreprocessPrecision } from './gaussian-renderer';
+import { default as get_renderer_gaussian, GaussianRenderer, GaussianRenderMode, PreprocessPrecision, debug_views } from './gaussian-renderer';
 import { default as get_renderer_pointcloud } from './point-cloud-renderer';
 import { Camera, load_camera_presets} from '../camera/camera';
 import { CameraControl } from '../camera/camera-control';
@@ -56,6 +56,7 @@ export default async function init(
     gpu_stats: '',
     frustum_culling: true,
     tight_bounds: true,
+    debug_view: 0,
     workgroup_size: 256,
     precision: 'f32' as PreprocessPrecision,
     ply_file: '',
@@ -67,6 +68,7 @@ export default async function init(
     r.set_gaussian_multiplier(params.gaussian_multiplier);
     r.set_frustum_culling(params.frustum_culling);
     r.set_tight_bounds(params.tight_bounds);
+    r.set_debug_view(params.debug_view);
     r.set_workgroup_size(params.workgroup_size);
     r.set_mode(params.gaussian_mode);
     r.set_precision(params.precision);
@@ -167,6 +169,12 @@ export default async function init(
     // opacity aware, axis aligned splat bounds instead of the 3 sigma circle
     pane.addInput(params, 'tight_bounds').on('change', (e) => {
       gaussian_renderer?.set_tight_bounds(e.value);
+    });
+  }
+  {
+    // intermediate pipeline stages; quad views apply to the quad mode, the heatmap to the tile mode
+    pane.addInput(params, 'debug_view', { options: debug_views }).on('change', (e) => {
+      gaussian_renderer?.set_debug_view(e.value);
     });
   }
   {

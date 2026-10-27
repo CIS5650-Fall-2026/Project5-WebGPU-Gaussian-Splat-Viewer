@@ -38,7 +38,7 @@ struct RenderSettings {
     frustum_culling: f32,   // > 0.5 => cull gaussians outside 1.2x the view frustum
     key_capacity: f32,      // tile renderer: number of sort keys that fit into the sort buffers
     tight_bounds: f32,      // > 0.5 => opacity aware, axis aligned splat bounds (see splat_extent)
-    _pad0: f32,
+    debug_view: f32,        // render shaders only
     _pad1: f32,
     _pad2: f32,
 }

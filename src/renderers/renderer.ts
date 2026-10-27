@@ -8,7 +8,7 @@ import { CameraControl } from '../camera/camera-control';
 import { time, timeReturn } from '../utils/simple-console';
 
 export interface Renderer {
-  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => void,
+  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView, query_set?: GPUQuerySet) => void,
   camera_buffer: GPUBuffer,
 }
 
@@ -51,6 +51,9 @@ export default async function init(
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
+    workgroup_size: 256,
+    frustum_culling: true,
+    precision: 'f32' as 'f32' | 'f16',
   };
 
   const pane = new Pane({
@@ -86,6 +89,11 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        device.queue.writeBuffer(
+          gaussian_renderer.settings_buffer, 0,
+          new Float32Array([params.gaussian_multiplier])
+        );
+        gaussian_renderer.set_options(params.workgroup_size, params.frustum_culling, undefined, params.precision);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -121,9 +129,31 @@ export default async function init(
       'gaussian_multiplier',
       {min: 0, max: 1.5}
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      if (gaussian_renderer) {
+        device.queue.writeBuffer(
+          gaussian_renderer.settings_buffer, 0,
+          new Float32Array([e.value])
+        );
+      }
     });
   }
+
+  pane.addInput(params, 'workgroup_size', {
+    options: { '64': 64, '128': 128, '256': 256 }
+  }).on('change', () => {
+    gaussian_renderer?.set_options(params.workgroup_size, params.frustum_culling, undefined, params.precision);
+  });
+  pane.addInput(params, 'frustum_culling').on('change', () => {
+    gaussian_renderer?.set_options(params.workgroup_size, params.frustum_culling, undefined, params.precision);
+  });
+  pane.addInput(params, 'precision', {
+    options: device.features.has('shader-f16') ? { f32: 'f32', f16: 'f16' } : { f32: 'f32' },
+  }).on('change', () => {
+    gaussian_renderer?.set_options(params.workgroup_size, params.frustum_culling, undefined, params.precision);
+  });
+  pane.addButton({ title: 'Performance analysis' }).on('click', () => {
+    location.search = '?benchmark';
+  });
 
   document.addEventListener('keydown', (event) => {
     switch(event.key) {

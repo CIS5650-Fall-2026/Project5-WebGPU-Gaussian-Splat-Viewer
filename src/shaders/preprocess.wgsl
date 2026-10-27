@@ -18,7 +18,8 @@ const SH_C3 = array<f32,7>(
 );
 
 override workgroupSize: u32;
-override sortKeyPerThread: u32;
+override sortKeysPerDispatch: u32;
+override shDegree: u32;
 
 struct DispatchIndirect {
     dispatch_x: atomic<u32>,
@@ -47,6 +48,8 @@ struct CameraUniforms {
 struct RenderSettings {
     gaussian_scaling: f32,
     sh_deg: f32,
+    frustum_culling: u32,
+    point_count: u32,
 }
 
 struct Gaussian {
@@ -56,10 +59,27 @@ struct Gaussian {
 };
 
 struct Splat {
-    //TODO: store information for 2D splat rendering
+    center: vec4<f32>,
+    color: vec4<f32>,
+    half_size: vec2<f32>,
+    radius: f32,
+    conic_opacity: vec4<f32>,
 };
 
-//TODO: bind your data here
+@group(0) @binding(0)
+var<uniform> camera: CameraUniforms;
+
+@group(0) @binding(1)
+var<storage, read> gaussians: array<Gaussian>;
+
+@group(0) @binding(2)
+var<storage, read_write> splats: array<Splat>;
+
+@group(0) @binding(3)
+var<storage, read> sh_coeffs: array<u32>;
+
+@group(0) @binding(4)
+var<uniform> settings: RenderSettings;
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
 @group(2) @binding(1)
@@ -71,8 +91,17 @@ var<storage, read_write> sort_dispatch: DispatchIndirect;
 
 /// reads the ith sh coef from the storage buffer 
 fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
-    //TODO: access your binded sh_coeff, see load.ts for how it is stored
-    return vec3<f32>(0.0);
+    let offset = splat_idx * 48u + c_idx * 3u;
+
+    let r = unpack2x16float(sh_coeffs[offset / 2u]);
+    let g = unpack2x16float(sh_coeffs[(offset + 1u) / 2u]);
+    let b = unpack2x16float(sh_coeffs[(offset + 2u) / 2u]);
+
+    return vec3<f32>(
+        r[offset % 2u],
+        g[(offset + 1u) % 2u],
+        b[(offset + 2u) % 2u]
+    );
 }
 
 // spherical harmonics evaluation with Condon–Shortley phase
@@ -108,11 +137,111 @@ fn computeColorFromSH(dir: vec3<f32>, v_idx: u32, sh_deg: u32) -> vec3<f32> {
     return  max(vec3<f32>(0.), result);
 }
 
-@compute @workgroup_size(workgroupSize,1,1)
-fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
-    let idx = gid.x;
-    //TODO: set up pipeline as described in instruction
+fn computeCov3D(gaussian: Gaussian) -> mat3x3<f32> {
+    let s0 = unpack2x16float(gaussian.scale[0]);
+    let s1 = unpack2x16float(gaussian.scale[1]);
+    let scale = exp(vec3<f32>(s0, s1.x)) * settings.gaussian_scaling;
 
-    let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
-    // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+    let r0 = unpack2x16float(gaussian.rot[0]);
+    let r1 = unpack2x16float(gaussian.rot[1]);
+    let rotation = vec4<f32>(r0, r1);
+    let q = rotation / max(length(rotation), 0.00000001);
+    let w = q.x;
+    let x = q.y;
+    let y = q.z;
+    let z = q.w;
+
+    let R = mat3x3<f32>(
+        vec3<f32>(1.0 - 2.0 * (y * y + z * z),
+                  2.0 * (x * y + w * z), 2.0 * (x * z - w * y)),
+        vec3<f32>(2.0 * (x * y - w * z),
+                  1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x)),
+        vec3<f32>(2.0 * (x * z + w * y), 2.0 * (y * z - w * x),
+                  1.0 - 2.0 * (x * x + y * y))
+    );
+    let M = mat3x3<f32>(R[0] * scale.x, R[1] * scale.y, R[2] * scale.z);
+    return M * transpose(M);
+}
+
+fn computeCov2D(view_pos: vec3<f32>, cov3d: mat3x3<f32>) -> vec3<f32> {
+    let V = mat3x3<f32>(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz);
+    let cov = V * cov3d * transpose(V);
+    let limit = 1.3 * camera.viewport / (2.0 * camera.focal);
+    let xy = clamp(view_pos.xy / view_pos.z, -limit, limit) * view_pos.z;
+    let inv_z = 1.0 / view_pos.z;
+    let jx = vec3<f32>(camera.focal.x * inv_z, 0.0,
+                      -camera.focal.x * xy.x * inv_z * inv_z);
+    let jy = vec3<f32>(0.0, camera.focal.y * inv_z,
+                      -camera.focal.y * xy.y * inv_z * inv_z);
+
+    return vec3<f32>(
+        dot(jx, cov * jx) + 0.3,
+        dot(jx, cov * jy),
+        dot(jy, cov * jy) + 0.3
+    );
+}
+
+@compute @workgroup_size(workgroupSize, 1, 1)
+fn preprocess(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) wgs: vec3<u32>
+) {
+    let count = min(settings.point_count, arrayLength(&gaussians));
+    if (gid.x >= count || settings.gaussian_scaling <= 0.0) {
+        return;
+    }
+    let idx = min(u32(floor(f32(gid.x) * (f32(arrayLength(&gaussians)) / f32(count)))),
+                  arrayLength(&gaussians) - 1u);
+
+    let gaussian = gaussians[idx];
+    let a = unpack2x16float(gaussian.pos_opacity[0]);
+    let b = unpack2x16float(gaussian.pos_opacity[1]);
+    let pos = vec4<f32>(a.x, a.y, b.x, 1.0);
+
+    let view_pos = camera.view * pos;
+    let clip = camera.proj * view_pos;
+
+    if (clip.w <= 0.0) {
+        return;
+    }
+
+    let ndc = clip.xyz / clip.w;
+
+    if (settings.frustum_culling != 0u &&
+        (abs(ndc.x) > 1.2 || abs(ndc.y) > 1.2 ||
+         ndc.z < 0.0 || ndc.z > 1.0)) {
+        return;
+    }
+
+    let cov3d = computeCov3D(gaussian);
+    let cov2d = computeCov2D(view_pos.xyz, cov3d);
+    let det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
+    if (det <= 0.0) {
+        return;
+    }
+    let conic = vec3<f32>(cov2d.z, -cov2d.y, cov2d.x) / det;
+    let opacity = 1.0 / (1.0 + exp(-b.y));
+    let mid = 0.5 * (cov2d.x + cov2d.z);
+    let diff = 0.5 * (cov2d.x - cov2d.z);
+    let lambda_max = mid + sqrt(diff * diff + cov2d.y * cov2d.y);
+    let radius = ceil(3.0 * sqrt(max(lambda_max, 0.0)));
+    let half_size = vec2<f32>(2.0 * radius) / camera.viewport;
+
+    let camera_pos = camera.view_inv[3].xyz;
+    let dir = normalize(pos.xyz - camera_pos);
+    let color = computeColorFromSH(dir, idx, shDegree);
+
+    let visible_idx = atomicAdd(&sort_infos.keys_size, 1u);
+    splats[visible_idx].center = vec4<f32>(ndc, 1.0);
+    splats[visible_idx].color = vec4<f32>(color, 1.0);
+    splats[visible_idx].half_size = half_size;
+    splats[visible_idx].radius = radius;
+    splats[visible_idx].conic_opacity = vec4<f32>(conic, opacity);
+
+    sort_depths[visible_idx] = ~bitcast<u32>(clip.w);
+    sort_indices[visible_idx] = visible_idx;
+
+    if (visible_idx % sortKeysPerDispatch == 0u) {
+        atomicAdd(&sort_dispatch.dispatch_x, 1u);
+    }
 }

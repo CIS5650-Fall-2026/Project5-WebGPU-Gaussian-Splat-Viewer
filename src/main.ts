@@ -18,17 +18,39 @@ import { assert } from './utils/util';
     return;
   }
   
+  const benchmark = new URLSearchParams(location.search).has('benchmark');
+  const requiredFeatures: GPUFeatureName[] = [];
+  if (benchmark && adapter.features.has('timestamp-query')) {
+    requiredFeatures.push('timestamp-query');
+  }
+  if (adapter.features.has('shader-f16')) {
+    requiredFeatures.push('shader-f16');
+  }
   const device = await adapter.requestDevice({
+    requiredFeatures,
     requiredLimits: { 
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
       maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize
      },
   });
 
+  device.addEventListener('uncapturederror', (event: GPUUncapturedErrorEvent) => {
+    console.error('WebGPU error:', event.error.message);
+  });
+
+  device.lost.then((info) => {
+    console.error('GPU device lost:', info.reason, info.message);
+  });
+
   const canvas = document.querySelector<HTMLCanvasElement>('#webgpu-canvas');
   assert(canvas !== null);
   const context = canvas.getContext('webgpu') as GPUCanvasContext;
   
-  init(canvas, context, device);
+  if (benchmark) {
+    const { run_performance_page } = await import('./performance');
+    run_performance_page(canvas, context, device, adapter);
+  } else {
+    init(canvas, context, device);
+  }
   
 })();

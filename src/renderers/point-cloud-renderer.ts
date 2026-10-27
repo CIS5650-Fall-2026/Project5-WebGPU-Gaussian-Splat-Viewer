@@ -39,9 +39,12 @@ export default function get_renderer(
     ],
   });
 
-  const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+  const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView, query_set?: GPUQuerySet) => {
     const pass = encoder.beginRenderPass({
       label: 'point cloud render',
+      timestampWrites: query_set ? {
+        querySet: query_set, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1,
+      } : undefined,
       colorAttachments: [
         {
           view: texture_view,
@@ -59,8 +62,8 @@ export default function get_renderer(
   };
 
   return {
-    frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
-      render(encoder, texture_view);
+    frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView, query_set?: GPUQuerySet) => {
+      render(encoder, texture_view, query_set);
     },
 
     camera_buffer,

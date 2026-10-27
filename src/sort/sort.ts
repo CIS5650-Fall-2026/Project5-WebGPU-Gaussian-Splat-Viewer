@@ -29,7 +29,7 @@ function create_ping_pong_buffer(adjusted_count: number, keysize: number, device
     // payload
     sort_indices_buffer: device.createBuffer({
       label: 'ping pong sort indices',
-      size: keysize * 4,
+      size: adjusted_count * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     }),
     // key
@@ -164,6 +164,22 @@ function create_pipelines(device: GPUDevice) {
           prefix_wg_size: C.prefix_wg_size,
         }
       }
+    }),
+    partition_even: device.createComputePipeline({
+      layout: pipeline_layout,
+      compute: { module, entryPoint: 'partition_even' },
+    }),
+    partition_odd: device.createComputePipeline({
+      layout: pipeline_layout,
+      compute: { module, entryPoint: 'partition_odd' },
+    }),
+    partition_prefix_even: device.createComputePipeline({
+      layout: pipeline_layout,
+      compute: { module, entryPoint: 'partition_prefix_even' },
+    }),
+    partition_prefix_odd: device.createComputePipeline({
+      layout: pipeline_layout,
+      compute: { module, entryPoint: 'partition_prefix_odd' },
     }),
     scatter_odd: device.createComputePipeline({
       layout: pipeline_layout,
@@ -337,16 +353,15 @@ export function get_sorter(keysize: number, device: GPUDevice): SortStuff {
     });
     pass.setBindGroup(0, bind_group);
 
-    // assert: passes == 4
-    
-    pass.setPipeline(pipelines.scatter_even);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
-    pass.setPipeline(pipelines.scatter_odd);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
-    pass.setPipeline(pipelines.scatter_even);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
-    pass.setPipeline(pipelines.scatter_odd);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+    for (let i = 0; i < num_pass; i++) {
+      const even = i % 2 === 0;
+      pass.setPipeline(even ? pipelines.partition_even : pipelines.partition_odd);
+      pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+      pass.setPipeline(even ? pipelines.partition_prefix_even : pipelines.partition_prefix_odd);
+      pass.dispatchWorkgroups(1);
+      pass.setPipeline(even ? pipelines.scatter_even : pipelines.scatter_odd);
+      pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+    }
     pass.end();
   }
 

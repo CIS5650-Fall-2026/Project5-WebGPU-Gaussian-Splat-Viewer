@@ -5,7 +5,7 @@ import { get_sorter,c_histogram_block_rows,C } from '../sort/sort';
 import { Renderer } from './renderer';
 
 export interface GaussianRenderer extends Renderer {
-
+  set_Gaussian_scaling: (scaling: number) => void,
 }
 
 // Utility to create GPU buffers
@@ -50,7 +50,19 @@ export default function get_renderer(
     GPUBufferUsage.STORAGE
   );
 
+  const scale_data = new Float32Array([1.0, pc.sh_deg]);
+
+  const scale_buffer = createBuffer(
+    device,
+    "scale buffer",
+    4 * 4, // 4 float32 values
+    GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    scale_data
+  );
+
   const nulling_data = new Uint32Array([0]);
+
+  
 
   // ===============================================
   //    Create Compute Pipeline and Bind Groups
@@ -71,7 +83,9 @@ export default function get_renderer(
   const preprocess_camera_bind_group = device.createBindGroup({
     label: 'preprocess camera',
     layout: preprocess_pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: camera_buffer } }],
+    entries: [{ binding: 0, resource: { buffer: camera_buffer } },
+              { binding: 1, resource: { buffer: scale_buffer } }
+    ],
   });
 
   const preprocess_gaussion_bind_group = device.createBindGroup({
@@ -122,6 +136,7 @@ export default function get_renderer(
     layout: render_pipeline.getBindGroupLayout(0),
     entries: [
       {binding: 0, resource: { buffer: splat_buffer }},
+      {binding: 1, resource: { buffer: sorter.ping_pong[0].sort_indices_buffer }},
     ],
   });
 
@@ -129,10 +144,13 @@ export default function get_renderer(
   //    Command Encoder Functions
   // ===============================================
   const preprocess = (encoder: GPUCommandEncoder) => {
+    device.queue.writeBuffer(sorter.sort_info_buffer, 0, nulling_data);
+    device.queue.writeBuffer(sorter.sort_dispatch_indirect_buffer, 0, nulling_data);
     const pass = encoder.beginComputePass({ label: 'preprocess' });
     pass.setPipeline(preprocess_pipeline);
     pass.setBindGroup(0, preprocess_camera_bind_group);
     pass.setBindGroup(1, preprocess_gaussion_bind_group);
+    pass.setBindGroup(2, sort_bind_group);
     
     pass.dispatchWorkgroups(Math.ceil(pc.num_points / C.histogram_wg_size));
     pass.end();
@@ -164,8 +182,12 @@ export default function get_renderer(
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
       preprocess(encoder);
       sorter.sort(encoder);
+      encoder.copyBufferToBuffer(sorter.sort_info_buffer, 0, indirect_buffer, 4, 4);
       render(encoder, texture_view);
     },
     camera_buffer,
+    set_Gaussian_scaling: (scaling: number) => {
+      device.queue.writeBuffer(scale_buffer, 0, new Float32Array([scaling, pc.sh_deg]));
+    }
   };
 }

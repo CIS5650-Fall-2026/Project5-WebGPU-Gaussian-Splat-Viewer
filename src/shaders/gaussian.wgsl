@@ -23,6 +23,8 @@ struct Splat {
 
 @group(0) @binding(0) 
 var<storage,read> splat: array<Splat>;
+@group(0) @binding(1)
+var<storage,read> sort_indices: array<u32>;
 
 
 @vertex
@@ -33,7 +35,7 @@ fn vs_main(
     //TODO: reconstruct 2D quad based on information from splat, pass 
     var out: VertexOutput;
     
-    let instance = splat[in_instance_index];
+    let instance = splat[sort_indices[in_instance_index]];
     let offset = QUAD_OFFSETS[in_vertex_index] * 0.01;
     out.position = vec4<f32>(instance.NDC.xy + offset, 0.0, 1.0);
 

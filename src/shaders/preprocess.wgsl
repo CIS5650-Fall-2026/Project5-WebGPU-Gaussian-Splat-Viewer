@@ -65,6 +65,8 @@ struct Splat {
 //TODO: bind your data here
 @group(0) @binding(0)
 var<uniform> camera: CameraUniforms;
+@group(0) @binding(1)
+var<uniform> settings: RenderSettings;
 
 @group(1) @binding(0)
 var<storage,read> gaussians : array<Gaussian>;
@@ -127,14 +129,30 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
         return;
     }
 
+    //temporary use of RenderSettings
+    let scale = settings.gaussian_scaling;
+
     let instance = gaussians[idx];
     let a = unpack2x16float(instance.pos_opacity[0]);
     let b = unpack2x16float(instance.pos_opacity[1]);
     let pos = vec4<f32>(a.x, a.y, b.x, 1.);
     let temp = camera.proj * camera.view * pos;
+    if (temp.w <= 0.0) {
+        return;
+    }
     let ndc = temp.xyz / temp.w;
+    if (abs(ndc.x)>1.2 || abs(ndc.y)>1.2) {
+        return;
+    }
     splat[idx].NDC = ndc.xy;
+
+    let slot = atomicAdd(&sort_infos.keys_size, 1u);
+    sort_indices[slot] = idx;
+    sort_depths[slot] = u32((ndc.z + 1.0) * 0.5 * 4294967295.0);
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+    if (slot % keys_per_dispatch == 0u) {
+        atomicAdd(&sort_dispatch.dispatch_x, 1u);
+    }
 }

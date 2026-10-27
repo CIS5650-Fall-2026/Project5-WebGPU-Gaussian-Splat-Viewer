@@ -1,0 +1,15 @@
+{"label":"bicycle_50|pointcloud","render":0.544,"render_sd":0}
+{"label":"bicycle_50|quad|f32|wg256","visible":487134,"visible_sd":0,"preprocess":0.44,"preprocess_sd":0,"sort":2.1622,"sort_sd":0.0028,"render":1.403,"render_sd":0,"gpu_total":4.0053,"gpu_total_sd":0.0026}
+{"label":"bicycle_50|tile|f32|wg256","visible":487134,"visible_sd":0,"tile_keys":1091048,"tile_keys_sd":0,"preprocess":0.4828,"preprocess_sd":0.0011,"sort":3.489,"sort_sd":0.068,"rasterize":1.9412,"rasterize_sd":0.0416,"blit":0.0188,"blit_sd":0.0004,"gpu_total":5.937,"gpu_total_sd":0.11}
+{"label":"bicycle_75|pointcloud","render":0.8108,"render_sd":0.0004}
+{"label":"bicycle_75|quad|f32|wg256","visible":731139,"visible_sd":0,"preprocess":0.6417,"preprocess_sd":0.0005,"sort":3.0043,"sort_sd":0.0007,"render":2.1142,"render_sd":0.0004,"gpu_total":5.7602,"gpu_total_sd":0.0004}
+{"label":"bicycle_75|tile|f32|wg256","visible":731139,"visible_sd":0,"tile_keys":1636686,"tile_keys_sd":0,"preprocess":0.7038,"preprocess_sd":0.0007,"sort":4.9568,"sort_sd":0.0033,"rasterize":2.6615,"rasterize_sd":0.0053,"blit":0.019,"blit_sd":0,"gpu_total":8.3457,"gpu_total_sd":0.0053}
+{"label":"bicycle_100|pointcloud","render":1.0738,"render_sd":0.0019}
+{"label":"bicycle_100|quad|f32|wg256","visible":974698,"visible_sd":0,"preprocess":0.8528,"preprocess_sd":0.0004,"sort":3.067,"sort_sd":0.0024,"render":2.2453,"render_sd":0.0007,"gpu_total":6.1657,"gpu_total_sd":0.0025}
+{"label":"bicycle_100|tile|f32|wg256","visible":974698,"visible_sd":0,"tile_keys":2181869,"tile_keys_sd":0,"preprocess":0.932,"preprocess_sd":0.001,"sort":6.4678,"sort_sd":0.0024,"rasterize":3.3812,"rasterize_sd":0.0097,"blit":0.019,"blit_sd":0,"gpu_total":10.8048,"gpu_total_sd":0.0119}
+{"label":"bonsai|pointcloud","render":0.6288,"render_sd":0.103}
+{"label":"bonsai|quad|f32|wg256","visible":111145,"visible_sd":0,"preprocess":0.1277,"preprocess_sd":0.0005,"sort":0.7217,"sort_sd":0.0011,"render":0.863,"render_sd":0,"gpu_total":1.7123,"gpu_total_sd":0.0012}
+{"label":"bonsai|tile|f32|wg256","visible":97290,"visible_sd":0,"tile_keys":401576,"tile_keys_sd":0,"preprocess":0.477,"preprocess_sd":0.0432,"sort":3.2418,"sort_sd":0.3092,"rasterize":1.3915,"rasterize_sd":0.1334,"blit":0.0227,"blit_sd":0.002,"gpu_total":5.1413,"gpu_total_sd":0.4878}
+{"label":"bicycle_25|pointcloud","render":2.1772,"render_sd":0.0007}
+{"label":"bicycle_25|quad|f32|wg256","visible":243801,"visible_sd":0,"preprocess":0.2375,"preprocess_sd":0.0026,"sort":1.526,"sort_sd":0.3674,"render":0.8337,"render_sd":0.2072,"gpu_total":2.5972,"gpu_total_sd":0.5766}
+{"label":"bicycle_25|tile|f32|wg256","visible":243801,"visible_sd":0,"tile_keys":545890,"tile_keys_sd":0,"preprocess":0.3547,"preprocess_sd":0.006,"sort":3.5753,"sort_sd":0.0637,"rasterize":1.9183,"rasterize_sd":0.0359,"blit":0.0197,"blit_sd":0.0005,"gpu_total":5.8758,"gpu_total_sd":0.1051}

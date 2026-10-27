@@ -46,7 +46,7 @@ export default function get_renderer(
   const splat_buffer = createBuffer(
     device,
     "splat buffer",
-    pc.num_points * 16, // 4 float32 values per point
+    pc.num_points * 32, // 4 float32 values per point
     GPUBufferUsage.STORAGE
   );
 
@@ -59,6 +59,8 @@ export default function get_renderer(
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     scale_data
   );
+
+
 
   const nulling_data = new Uint32Array([0]);
 
@@ -94,6 +96,7 @@ export default function get_renderer(
     entries: [
       { binding: 0, resource: { buffer: pc.gaussian_3d_buffer } },
       { binding: 1, resource: { buffer: splat_buffer } },
+      {binding: 2, resource: { buffer: pc.sh_buffer }}
     ],
   });
 

@@ -58,7 +58,8 @@ struct Gaussian {
 struct Splat {
     //TODO: store information for 2D splat rendering
     NDC: vec2<f32>,
-    size: vec2<f32>
+    size: vec2<f32>,
+    color: vec4<f32>
 };
 
 
@@ -73,6 +74,8 @@ var<uniform> settings: RenderSettings;
 var<storage,read> gaussians : array<Gaussian>;
 @group(1) @binding(1)
 var<storage,read_write> splat: array<Splat>;
+@group(1) @binding(2)
+var<storage, read> sh_buffer: array<u32>;
 
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
@@ -86,7 +89,13 @@ var<storage, read_write> sort_dispatch: DispatchIndirect;
 /// reads the ith sh coef from the storage buffer 
 fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
     //TODO: access your binded sh_coeff, see load.ts for how it is stored
-    return vec3<f32>(0.0);
+    let h = splat_idx * 48u + c_idx * 3u;
+    let w0 = unpack2x16float(sh_buffer[h/2u]);
+    let w1 = unpack2x16float(sh_buffer[h/2u + 1u]);
+    if (h % 2u == 0u){
+        return vec3<f32>(w0.x, w0.y, w1.x);
+    }
+    return vec3<f32>(w0.y, w1.x, w1.y);
 }
 
 // spherical harmonics evaluation with Condon–Shortley phase
@@ -191,6 +200,7 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
         -fx*t.x/(t.z*t.z), -fy*t.y/(t.z*t.z), 0.0
     );
     let view = camera.view;
+    let view_inv = camera.view_inv;
     let W = mat3x3<f32>(
         view[0].xyz, view[1].xyz, view[2].xyz
     );
@@ -204,7 +214,11 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
         return;
     }
 
-    let conic = vec3<f32>(cova, -covb, covc) / det;
+    let cam_pos = view_inv[3].xyz;
+    let dir = normalize(pos.xyz - cam_pos);
+    let color = computeColorFromSH(dir, idx, u32(settings.sh_deg));
+
+    let conic = vec3<f32>(covc, -covb, cova) / det;
     let mid = 0.5 * (cova + covc);
     let lambda1 = mid + sqrt(max(0.1, mid*mid - det));
     let lambda2 = mid - sqrt(max(0.1, mid*mid - det));
@@ -213,10 +227,11 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
 
     splat[idx].NDC = ndc.xy;
     splat[idx].size = size;
+    splat[idx].color = vec4<f32>(color, 1.0);
 
     let slot = atomicAdd(&sort_infos.keys_size, 1u);
     sort_indices[slot] = idx;
-    sort_depths[slot] = u32((ndc.z + 1.0) * 0.5 * 4294967295.0);
+    sort_depths[slot] = bitcast<u32>(100.0 - t.z);
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys

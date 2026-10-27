@@ -18,6 +18,7 @@ struct VertexOutput {
 struct Splat {
     //TODO: information defined in preprocess compute shader
     NDC: vec2<f32>,
+    size: vec2<f32>
 
 };
 
@@ -36,7 +37,7 @@ fn vs_main(
     var out: VertexOutput;
     
     let instance = splat[sort_indices[in_instance_index]];
-    let offset = QUAD_OFFSETS[in_vertex_index] * 0.01;
+    let offset = QUAD_OFFSETS[in_vertex_index] * instance.size;
     out.position = vec4<f32>(instance.NDC.xy + offset, 0.0, 1.0);
 
     return out;
@@ -44,5 +45,5 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(1., 1., 0., 1.);
+    return vec4<f32>(1., 1., 1., 1.);
 }

@@ -58,6 +58,7 @@ struct Gaussian {
 struct Splat {
     //TODO: store information for 2D splat rendering
     NDC: vec2<f32>,
+    size: vec2<f32>
 };
 
 
@@ -129,14 +130,14 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
         return;
     }
 
-    //temporary use of RenderSettings
-    let scale = settings.gaussian_scaling;
 
     let instance = gaussians[idx];
     let a = unpack2x16float(instance.pos_opacity[0]);
     let b = unpack2x16float(instance.pos_opacity[1]);
     let pos = vec4<f32>(a.x, a.y, b.x, 1.);
     let temp = camera.proj * camera.view * pos;
+
+    //culling
     if (temp.w <= 0.0) {
         return;
     }
@@ -144,7 +145,74 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
     if (abs(ndc.x)>1.2 || abs(ndc.y)>1.2) {
         return;
     }
+
+    let rot01 = unpack2x16float(instance.rot[0]);
+    let rot23 = unpack2x16float(instance.rot[1]);
+    var w = rot01.x;
+    var x = rot01.y;
+    var y = rot23.x;
+    var z = rot23.y;
+    let quat = normalize(vec4<f32>(x, y, z, w));
+    w = quat.w;
+    x = quat.x;
+    y = quat.y;
+    z = quat.z; 
+
+    let scale01 = unpack2x16float(instance.scale[0]);
+    let scale23 = unpack2x16float(instance.scale[1]);
+    let scale = exp(vec3<f32>(scale01.x, scale01.y, scale23.x)) * settings.gaussian_scaling;
+
+    let R = mat3x3<f32>(
+        1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+        2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+        2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y)
+    );
+
+    let S = mat3x3<f32>(
+        scale.x, 0.0, 0.0,
+        0.0, scale.y, 0.0,
+        0.0, 0.0, scale.z
+    );
+
+    let M = R * S;
+    let sigma = M * transpose(M);
+    var t = (camera.view*pos).xyz;
+    let tan_fov = 0.5 * camera.viewport / camera.focal;
+    let lim = 1.3 * tan_fov;
+    //clamp
+    t.x = clamp(t.x/t.z, -lim.x, lim.x) * t.z;
+    t.y = clamp(t.y/t.z, -lim.y, lim.y) * t.z;
+
+    let fx = camera.focal.x;
+    let fy = camera.focal.y;
+    let J = mat3x3<f32>(
+        fx/t.z, 0.0, 0.0,
+        0, fy/t.z, 0.0,
+        -fx*t.x/(t.z*t.z), -fy*t.y/(t.z*t.z), 0.0
+    );
+    let view = camera.view;
+    let W = mat3x3<f32>(
+        view[0].xyz, view[1].xyz, view[2].xyz
+    );
+    let T = J * W;
+    let cov = T * sigma * transpose(T);
+    let cova = cov[0][0] + 0.3;
+    let covb = cov[0][1];
+    let covc = cov[1][1] + 0.3;
+    let det = cova * covc - covb * covb;
+    if (det <= 0.0) {
+        return;
+    }
+
+    let conic = vec3<f32>(cova, -covb, covc) / det;
+    let mid = 0.5 * (cova + covc);
+    let lambda1 = mid + sqrt(max(0.1, mid*mid - det));
+    let lambda2 = mid - sqrt(max(0.1, mid*mid - det));
+    let radius = ceil(sqrt(max(lambda1, lambda2)) * 3.0);
+    let size = 2 * radius / camera.viewport;
+
     splat[idx].NDC = ndc.xy;
+    splat[idx].size = size;
 
     let slot = atomicAdd(&sort_infos.keys_size, 1u);
     sort_indices[slot] = idx;

@@ -46,7 +46,7 @@ export default function get_renderer(
   const splat_buffer = createBuffer(
     device,
     "splat buffer",
-    pc.num_points * 32, // 4 float32 values per point
+    pc.num_points * 48, // 4 float32 values per point
     GPUBufferUsage.STORAGE
   );
 
@@ -126,7 +126,13 @@ export default function get_renderer(
     fragment: {
       module: render_shader,
       entryPoint: 'fs_main',
-      targets: [{ format: presentation_format }],
+      targets: [{
+        format: presentation_format,
+        blend: {
+          color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        },
+      }],
     },
     primitive: {
       topology: 'triangle-list',
@@ -140,6 +146,7 @@ export default function get_renderer(
     entries: [
       {binding: 0, resource: { buffer: splat_buffer }},
       {binding: 1, resource: { buffer: sorter.ping_pong[0].sort_indices_buffer }},
+      {binding: 2, resource: { buffer: camera_buffer }},
     ],
   });
 

@@ -59,7 +59,8 @@ struct Splat {
     //TODO: store information for 2D splat rendering
     NDC: vec2<f32>,
     size: vec2<f32>,
-    color: vec4<f32>
+    color: vec4<f32>,
+    conic_opacity: vec4<f32>
 };
 
 
@@ -145,6 +146,7 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
     let b = unpack2x16float(instance.pos_opacity[1]);
     let pos = vec4<f32>(a.x, a.y, b.x, 1.);
     let temp = camera.proj * camera.view * pos;
+    let opacity = 1.0/(1.0+exp(-b.y));
 
     //culling
     if (temp.w <= 0.0) {
@@ -228,6 +230,7 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
     splat[idx].NDC = ndc.xy;
     splat[idx].size = size;
     splat[idx].color = vec4<f32>(color, 1.0);
+    splat[idx].conic_opacity = vec4<f32>(conic, opacity);
 
     let slot = atomicAdd(&sort_infos.keys_size, 1u);
     sort_indices[slot] = idx;

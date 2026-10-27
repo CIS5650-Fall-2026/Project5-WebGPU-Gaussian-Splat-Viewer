@@ -43,6 +43,13 @@ export default function get_renderer(
     tempData
   );
 
+  const splat_buffer = createBuffer(
+    device,
+    "splat buffer",
+    pc.num_points * 8,
+    GPUBufferUsage.STORAGE
+  );
+
   const nulling_data = new Uint32Array([0]);
 
   // ===============================================
@@ -59,6 +66,21 @@ export default function get_renderer(
         sortKeyPerThread: c_histogram_block_rows,
       },
     },
+  });
+
+  const preprocess_camera_bind_group = device.createBindGroup({
+    label: 'preprocess camera',
+    layout: preprocess_pipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: camera_buffer } }],
+  });
+
+  const preprocess_gaussion_bind_group = device.createBindGroup({
+    label: 'preprocess gaussians',
+    layout: preprocess_pipeline.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer: pc.gaussian_3d_buffer } },
+      { binding: 1, resource: { buffer: splat_buffer } },
+    ],
   });
 
   const sort_bind_group = device.createBindGroup({
@@ -94,23 +116,29 @@ export default function get_renderer(
     },
   });
   
-  const camera_bind_group = device.createBindGroup({
-    label: 'gaussian camera',
-    layout: render_pipeline.getBindGroupLayout(0),
-    entries: [{binding: 0, resource: { buffer: camera_buffer }}],
-  });
-
-  const gaussian_bind_group = device.createBindGroup({
+ 
+  const splat_bind_group = device.createBindGroup({
     label: 'gaussian gaussians',
-    layout: render_pipeline.getBindGroupLayout(1),
+    layout: render_pipeline.getBindGroupLayout(0),
     entries: [
-      {binding: 0, resource: { buffer: pc.gaussian_3d_buffer }},
+      {binding: 0, resource: { buffer: splat_buffer }},
     ],
   });
 
   // ===============================================
   //    Command Encoder Functions
   // ===============================================
+  const preprocess = (encoder: GPUCommandEncoder) => {
+    const pass = encoder.beginComputePass({ label: 'preprocess' });
+    pass.setPipeline(preprocess_pipeline);
+    pass.setBindGroup(0, preprocess_camera_bind_group);
+    pass.setBindGroup(1, preprocess_gaussion_bind_group);
+    
+    pass.dispatchWorkgroups(Math.ceil(pc.num_points / C.histogram_wg_size));
+    pass.end();
+  }
+
+
    const render = (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
     const pass = encoder.beginRenderPass({
       label: 'Gaussian render',
@@ -123,8 +151,7 @@ export default function get_renderer(
       ],
     });
     pass.setPipeline(render_pipeline);
-    pass.setBindGroup(0, camera_bind_group);
-    pass.setBindGroup(1, gaussian_bind_group);
+    pass.setBindGroup(0, splat_bind_group);
 
     pass.drawIndirect(indirect_buffer, 0);
     pass.end();
@@ -135,6 +162,7 @@ export default function get_renderer(
   // ===============================================
   return {
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
+      preprocess(encoder);
       sorter.sort(encoder);
       render(encoder, texture_view);
     },

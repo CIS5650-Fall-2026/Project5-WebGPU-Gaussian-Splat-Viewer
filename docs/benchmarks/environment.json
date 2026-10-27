@@ -1,0 +1,17 @@
+{
+  "os": "Windows 11 Home 10.0.26200",
+  "cpu": "AMD Ryzen 7 8845HS",
+  "ram_gib": 15.3,
+  "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "gpu_driver": "616.56",
+  "webgpu_adapter": "nvidia / lovelace",
+  "browser": "Chrome 155.0.8059.85, headless, --enable-unsafe-webgpu",
+  "build": "vite production build served with vite preview",
+  "canvas": "1280x720",
+  "timing": "timestamp-query per pass, exponential moving average (alpha 0.1) sampled 6 times at 400 ms after a 1.5 s settle; *_sd is the SD of those samples",
+  "scenes": {
+    "bicycle_30000.cleaned.ply": 1063091,
+    "bonsai.ply": 272956,
+    "bicycle_75 / 50 / 25 (random subsets, seed 0)": [797318, 531545, 265772]
+  }
+}

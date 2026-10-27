@@ -6,8 +6,9 @@
 //   - spherical harmonics evaluation (48 coefficients per gaussian, the bulk of the ALU work)
 //   - quaternion -> rotation matrix and the 3D covariance, computed with scales normalized by the largest
 //     scale so every entry is in [0, 1] (exp(scale)^2 of small gaussians underflows f16 otherwise)
-//   - opacity sigmoid
 // What stays in f32:
+//   - the opacity sigmoid: exp(-x) overflows f16 (> 65504) for raw opacities below -11, which would let
+//     invisible splats slip past the 1/255 opacity cull
 //   - view / projection transforms (world positions and depths need the mantissa)
 //   - the EWA projection to pixel space: covariance entries reach focal^2 * sigma^2 / z^2 ~ 1e6, far above
 //     the f16 maximum of 65504, and the conic of large splats would be an f16 denormal
@@ -166,7 +167,7 @@ fn project_gaussian(idx: u32) -> Projected {
     let det_inv = 1.0 / det;
     let mid = 0.5 * (cov2d.x + cov2d.z);
     let lambda1 = mid + sqrt(max(0.1, mid * mid - det));
-    let opacity = f32(1.0h / (1.0h + exp(-z_op.y)));
+    let opacity = sigmoid(f32(z_op.y));
     let extent = splat_extent(cov2d, lambda1, opacity);
     if extent.x <= 0.0 {
         return p;

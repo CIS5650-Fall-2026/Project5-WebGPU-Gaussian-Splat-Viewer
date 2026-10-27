@@ -29,7 +29,7 @@ struct RenderSettings {
 
 const DEBUG_NONE: u32 = 0u;
 const DEBUG_QUADS: u32 = 1u;        // opaque white quads
-const DEBUG_QUAD_SIZE: u32 = 2u;    // quad width / height in NDC as red / green
+const DEBUG_QUAD_SIZE: u32 = 2u;    // quad width / height in NDC as red / green (x4 to be visible)
 const DEBUG_QUAD_COLOR: u32 = 3u;   // opaque quads with the SH color
 const DEBUG_PIXEL_OFFSET: u32 = 4u; // offset to the splat center in pixels as red / green
 
@@ -92,7 +92,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(1.0);
         }
         case DEBUG_QUAD_SIZE: {
-            return vec4<f32>(2.0 * in.size, 0.0, 1.0);
+            return vec4<f32>(8.0 * in.size, 0.0, 1.0);
         }
         case DEBUG_QUAD_COLOR: {
             return vec4<f32>(in.color.rgb, 1.0);

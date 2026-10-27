@@ -119,10 +119,10 @@ fn rasterize(
     let total = range.y - range.x;
     let rounds = (total + BATCH_SIZE - 1u) / BATCH_SIZE;
 
-    // debug: number of splats overlapping the tile, 0 .. 1024+ mapped to a heat ramp
+    // debug: number of splats overlapping the tile on a log scale, 1 .. 8192 mapped to a heat ramp
     if render_settings[1].y == 5.0 {
         if inside {
-            textureStore(output, pix, vec4<f32>(heat(f32(total) / 1024.0), 1.0));
+            textureStore(output, pix, vec4<f32>(heat(log2(f32(total) + 1.0) / 13.0), 1.0));
         }
         return;
     }

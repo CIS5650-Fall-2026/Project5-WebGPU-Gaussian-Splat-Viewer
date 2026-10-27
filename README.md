@@ -15,7 +15,7 @@ The viewer has two complete rasterizers:
 
 It also includes an **f16 preprocess shader** (extra credit), an **opacity-aware tight-bounds optimization** that makes the quad renderer 2× faster, **GPU timestamp profiling** in the UI, and **debug views** for every stage of the pipeline.
 
-[**Live demo**](https://farisyahz.github.io/Project5-WebGPU-Gaussian-Splat-Viewer/) (bring your own scene file, see [Run locally](#run-locally)) · [**Feature video (MP4)**](docs/media/demo.mp4) · [Raw measurements](docs/benchmarks)
+[**Live demo**](https://farisyahz.github.io/Project5-WebGPU-Gaussian-Splat-Viewer/) (bring your own scene file, see [Run locally](#run-locally)) | [**Feature video (MP4)**](docs/media/demo.mp4) | [Raw measurements](docs/benchmarks)
 
 [![Feature tour: point cloud, gaussian splats, camera presets, size multiplier, debug views, tile renderer, f16, tight bounds and zoom](docs/media/demo.gif)](docs/media/demo.mp4)
 

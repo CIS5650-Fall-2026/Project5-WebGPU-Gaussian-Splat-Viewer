@@ -8,7 +8,7 @@ import { CameraControl } from '../camera/camera-control';
 import { time, timeReturn } from '../utils/simple-console';
 
 export interface Renderer {
-  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => void,
+  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView, texture: GPUTexture) => void,
   camera_buffer: GPUBuffer,
 }
 
@@ -48,6 +48,9 @@ export default async function init(
   const params = {
     fps: 0.0,
     gaussian_multiplier: 1,
+    culling: true,
+    half_precision: false,
+    tile_sort: false,
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
@@ -86,6 +89,7 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer.update_settings(params);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -122,6 +126,23 @@ export default async function init(
       {min: 0, max: 1.5}
     ).on('change', (e) => {
       //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.update_settings(params);
+    });
+  }
+  {
+    pane.addInput(params, 'culling').on('change', () => {
+      gaussian_renderer?.update_settings(params);
+    });
+  }
+  {
+    // only works if the gpu supports shader-f16
+    pane.addInput(params, 'half_precision', { disabled: !device.features.has('shader-f16') }).on('change', () => {
+      gaussian_renderer?.update_settings(params);
+    });
+  }
+  {
+    pane.addInput(params, 'tile_sort').on('change', () => {
+      gaussian_renderer?.update_settings(params);
     });
   }
 
@@ -149,8 +170,9 @@ export default async function init(
       params.fps=1.0/timeReturn()*1000.0;
       time();
       const encoder = device.createCommandEncoder();
-      const texture_view = context.getCurrentTexture().createView();
-      renderer.frame(encoder, texture_view);
+      const texture = context.getCurrentTexture();
+      const texture_view = texture.createView();
+      renderer.frame(encoder, texture_view, texture);
       device.queue.submit([encoder.finish()]);
     }
     requestAnimationFrame(frame);

@@ -17,14 +17,14 @@ export default async function init(
   context: GPUCanvasContext,
   device: GPUDevice
 ) {
-  let ply_file_loaded = false; 
-  let cam_file_loaded = false; 
+  let ply_file_loaded = false;
+  let cam_file_loaded = false;
   let renderers: { pointcloud?: Renderer, gaussian?: Renderer } = {};
-  let gaussian_renderer: GaussianRenderer | undefined; 
-  let pointcloud_renderer: Renderer | undefined; 
-  let renderer: Renderer | undefined; 
+  let gaussian_renderer: GaussianRenderer | undefined;
+  let pointcloud_renderer: Renderer | undefined;
+  let renderer: Renderer | undefined;
   let cameras;
-  
+
   const camera = new Camera(canvas, device);
   const control = new CameraControl(camera);
 
@@ -35,14 +35,14 @@ export default async function init(
     camera.on_update_canvas();
   });
   observer.observe(canvas);
-  
+
   const presentation_format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
     device,
     format: presentation_format,
     alphaMode: 'opaque',
   });
-  
+
 
   // Tweakpane: easily adding tweak control for parameters.
   const params = {
@@ -86,6 +86,7 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer.set_gaussian_multiplier(params.gaussian_multiplier);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -122,6 +123,7 @@ export default async function init(
       {min: 0, max: 1.5}
     ).on('change', (e) => {
       //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_gaussian_multiplier(e.value);
     });
   }
 

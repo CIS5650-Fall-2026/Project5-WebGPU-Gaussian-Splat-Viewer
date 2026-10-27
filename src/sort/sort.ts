@@ -29,7 +29,7 @@ function create_ping_pong_buffer(adjusted_count: number, keysize: number, device
     // payload
     sort_indices_buffer: device.createBuffer({
       label: 'ping pong sort indices',
-      size: keysize * 4,
+      size: adjusted_count * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     }),
     // key
@@ -170,6 +170,36 @@ function create_pipelines(device: GPUDevice) {
       compute: {
         module: module,
         entryPoint: 'scatter_odd',
+        constants: {
+          histogram_sg_size: C.histogram_sg_size,
+          histogram_wg_size: C.histogram_wg_size,
+          rs_radix_log2: C.rs_radix_log2,
+          rs_radix_size: C.rs_radix_size,
+          rs_keyval_size: C.rs_keyval_size,
+          scatter_wg_size: C.scatter_wg_size,
+        }
+      }
+    }),
+        block_counts_even: device.createComputePipeline({
+      layout: pipeline_layout,
+      compute: {
+        module: module,
+        entryPoint: 'block_counts_even',
+        constants: {
+          histogram_sg_size: C.histogram_sg_size,
+          histogram_wg_size: C.histogram_wg_size,
+          rs_radix_log2: C.rs_radix_log2,
+          rs_radix_size: C.rs_radix_size,
+          rs_keyval_size: C.rs_keyval_size,
+          scatter_wg_size: C.scatter_wg_size,
+        }
+      }
+    }),
+    block_counts_odd: device.createComputePipeline({
+      layout: pipeline_layout,
+      compute: {
+        module: module,
+        entryPoint: 'block_counts_odd',
         constants: {
           histogram_sg_size: C.histogram_sg_size,
           histogram_wg_size: C.histogram_wg_size,
@@ -338,15 +368,19 @@ export function get_sorter(keysize: number, device: GPUDevice): SortStuff {
     pass.setBindGroup(0, bind_group);
 
     // assert: passes == 4
-    
-    pass.setPipeline(pipelines.scatter_even);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
-    pass.setPipeline(pipelines.scatter_odd);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
-    pass.setPipeline(pipelines.scatter_even);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
-    pass.setPipeline(pipelines.scatter_odd);
-    pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+
+    // before each scatter, write every block's digit counts so no workgroup has to wait for another
+    for (let i = 0; i < 2; i++) {
+      pass.setPipeline(pipelines.block_counts_even);
+      pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+      pass.setPipeline(pipelines.scatter_even);
+      pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+      pass.setPipeline(pipelines.block_counts_odd);
+      pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+      pass.setPipeline(pipelines.scatter_odd);
+      pass.dispatchWorkgroupsIndirect(sort_dispatch_indirect_buffer, 0);
+    }
+
     pass.end();
   }
 

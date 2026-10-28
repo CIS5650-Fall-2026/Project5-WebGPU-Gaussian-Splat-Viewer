@@ -1,0 +1,25 @@
+{
+  "sourceName": "bicycle_30000.cleaned.ply",
+  "sourceSha256": "b62d95023ae1c4107d7d66bcb37864656a7842057c9c8e60353dc0e5c5378641",
+  "sourceCount": 1063091,
+  "recordBytes": 248,
+  "method": "Keep source record indices 0, stride, 2*stride, ...; copy full records unchanged. Ordering may be spatially correlated, so these are controlled subsets, not unbiased random samples.",
+  "subsets": [
+    {
+      "file": "bicycle_30000.cleaned.stride-2.ply",
+      "stride": 2,
+      "count": 531546,
+      "fraction": 0.500000470326623,
+      "bytes": 131824939,
+      "sha256": "5507b3e54bed105841bd214abc5fb008e857021921537212f7f80e5ed96eacaf"
+    },
+    {
+      "file": "bicycle_30000.cleaned.stride-4.ply",
+      "stride": 4,
+      "count": 265773,
+      "fraction": 0.2500002351633115,
+      "bytes": 65913235,
+      "sha256": "872b0bf88e6dd1e6751a0ad60f20d42e2ae2f6b4a2653d903bb8c7dc93a78c3b"
+    }
+  ]
+}

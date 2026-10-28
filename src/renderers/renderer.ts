@@ -1,3 +1,4 @@
+import { mat4 } from 'wgpu-matrix';
 import { load } from '../utils/load';
 import { Pane } from 'tweakpane';
 import * as TweakpaneFileImportPlugin from 'tweakpane-plugin-file-import';
@@ -6,6 +7,7 @@ import { default as get_renderer_pointcloud } from './point-cloud-renderer';
 import { Camera, load_camera_presets} from '../camera/camera';
 import { CameraControl } from '../camera/camera-control';
 import { time, timeReturn } from '../utils/simple-console';
+
 
 export interface Renderer {
   frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => void,
@@ -122,10 +124,19 @@ export default async function init(
       {min: 0, max: 1.5}
     ).on('change', (e) => {
       //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.setGaussianScaling(e.value);
     });
   }
 
   document.addEventListener('keydown', (event) => {
+if (event.key === 'q' || event.key === 'e') {
+  const angle = event.key === 'q' ? -0.03 : 0.03;
+  const roll = mat4.rotateZ(mat4.identity(), angle);
+
+  mat4.mul(roll, camera.rotation, camera.rotation);
+  camera.update_buffer();
+  return;
+}
     switch(event.key) {
       case '0':
       case '1':

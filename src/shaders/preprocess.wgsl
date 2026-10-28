@@ -56,10 +56,19 @@ struct Gaussian {
 };
 
 struct Splat {
-    //TODO: store information for 2D splat rendering
+    pos_size: array<u32,2>,
+    color: array<u32,2>,
+    conic_opacity: array<u32,2>,
 };
 
 //TODO: bind your data here
+@group(0) @binding(0) var<uniform> camera: CameraUniforms;
+@group(0) @binding(1) var<uniform> render_settings: RenderSettings;
+@group(1) @binding(0) var<storage, read> gaussians: array<Gaussian>;
+@group(1) @binding(1) var<storage, read_write> splats: array<Splat>;
+@group(1) @binding(2)
+var<storage, read> sh_coefficients: array<u32>;
+
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
 @group(2) @binding(1)
@@ -70,9 +79,18 @@ var<storage, read_write> sort_indices : array<u32>;
 var<storage, read_write> sort_dispatch: DispatchIndirect;
 
 /// reads the ith sh coef from the storage buffer 
-fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
-    //TODO: access your binded sh_coeff, see load.ts for how it is stored
-    return vec3<f32>(0.0);
+fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3f {
+    // Each Gaussian stores 16 RGB coefficients as packed f16 values.
+    let base = splat_idx * 48u + c_idx * 3u;
+    var rgb: vec3f;
+
+    for (var channel = 0u; channel < 3u; channel++) {
+        let offset = base + channel;
+        let pair = unpack2x16float(sh_coefficients[offset / 2u]);
+        rgb[channel] = pair[offset % 2u];
+    }
+
+    return rgb;
 }
 
 // spherical harmonics evaluation with Condon–Shortley phase
@@ -114,5 +132,142 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
     //TODO: set up pipeline as described in instruction
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
-    // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+    if (idx >= arrayLength(&gaussians)) { return; }
+let g = gaussians[idx];
+
+let scaleXY = unpack2x16float(g.scale[0]);
+let scaleZ = unpack2x16float(g.scale[1]).x;
+
+let scale3D = exp(vec3f(scaleXY, scaleZ))
+    * render_settings.gaussian_scaling;
+
+let rotationWX = unpack2x16float(g.rot[0]);
+let rotationYZ = unpack2x16float(g.rot[1]);
+
+let quaternion = normalize(vec4f(rotationWX, rotationYZ));
+
+// Quaternion components in (w, x, y, z) order
+let w = quaternion.x;
+let x = quaternion.y;
+let y = quaternion.z;
+let z = quaternion.w;
+
+// Convert the quaternion to a rotation matrix.
+// WGSL matrix constructors take column vectors.
+let R = mat3x3f(
+    vec3f(
+        1.0 - 2.0 * (y*y + z*z),
+        2.0 * (x*y + w*z),
+        2.0 * (x*z - w*y)
+    ),
+    vec3f(
+        2.0 * (x*y - w*z),
+        1.0 - 2.0 * (x*x + z*z),
+        2.0 * (y*z + w*x)
+    ),
+    vec3f(
+        2.0 * (x*z + w*y),
+        2.0 * (y*z - w*x),
+        1.0 - 2.0 * (x*x + y*y)
+    )
+);
+
+// Scale each column along its corresponding local axis.
+let RS = mat3x3f(
+    R[0] * scale3D.x,
+    R[1] * scale3D.y,
+    R[2] * scale3D.z
+);
+
+// Compute the 3D covariance: Sigma = (R * S) * transpose(R * S).
+let cov3D = RS * transpose(RS);
+
+let a = unpack2x16float(g.pos_opacity[0]);
+let b = unpack2x16float(g.pos_opacity[1]);
+let view_pos = camera.view * vec4f(a.x, a.y, b.x, 1.0);
+let clip = camera.proj * view_pos;
+let ndc = clip.xyz / clip.w;
+// Reject near-camera points and off-screen centers, with a margin for edge splats.
+if (view_pos.z < 0.2 || abs(ndc.x) > 1.2 || abs(ndc.y) > 1.2) { return; }
+
+// Transform the covariance from world space to camera space.
+let viewRotation = mat3x3f(
+    camera.view[0].xyz,
+    camera.view[1].xyz,
+    camera.view[2].xyz
+);
+
+let viewCov = viewRotation * cov3D * transpose(viewRotation);
+
+// Compute the perspective projection Jacobian in pixel space.
+let invZ = 1.0 / view_pos.z;
+
+let Jx = vec3f(
+    camera.focal.x * invZ,
+    0.0,
+    -camera.focal.x * view_pos.x * invZ * invZ
+);
+
+let Jy = vec3f(
+    0.0,
+    camera.focal.y * invZ,
+    -camera.focal.y * view_pos.y * invZ * invZ
+);
+
+// Project to 2D and add a subpixel low-pass filter.
+let covXX = dot(Jx, viewCov * Jx) + 0.3;
+let covXY = dot(Jx, viewCov * Jy);
+let covYY = dot(Jy, viewCov * Jy) + 0.3;
+
+// Find the largest eigenvalue of the 2D covariance.
+let midpoint = 0.5 * (covXX + covYY);
+let discriminant = max(
+    0.0,
+    0.25 * (covXX - covYY) * (covXX - covYY)
+        + covXY * covXY
+);
+let lambdaMax = midpoint + sqrt(discriminant);
+
+// Convert the three-sigma radius from pixels to NDC half-extents.
+let radius = ceil(3.0 * sqrt(lambdaMax));
+let size = vec2f(2.0 * radius) / camera.viewport;
+
+
+splats[idx].pos_size[0] = pack2x16float(ndc.xy);
+splats[idx].pos_size[1] = pack2x16float(size);
+
+// Evaluate view-dependent color using spherical harmonics.
+let worldPosition = vec3f(a.x, a.y, b.x);
+let direction = normalize(worldPosition - camera.view_inv[3].xyz);
+
+let color = computeColorFromSH(
+    direction,
+    idx,
+    u32(render_settings.sh_deg)
+);
+
+// Store RGB as packed f16 values.
+splats[idx].color[0] = pack2x16float(color.rg);
+splats[idx].color[1] = pack2x16float(vec2f(color.b, radius));
+
+let det = covXX * covYY - covXY * covXY;
+if (!(det > 0.0)) {
+    return;
+}
+
+let conic = vec3f(covYY, -covXY, covXX) / det;
+
+let opacity = 1.0 / (1.0 + exp(-b.y));
+
+splats[idx].conic_opacity[0] = pack2x16float(conic.xy);
+splats[idx].conic_opacity[1] = pack2x16float(
+    vec2f(conic.z, opacity)
+);
+
+let slot = atomicAdd(&sort_infos.keys_size, 1u);
+sort_depths[slot] = bitcast<u32>(100.0 - view_pos.z);
+sort_indices[slot] = idx;
+if (slot % keys_per_dispatch == 0u) {
+    atomicAdd(&sort_dispatch.dispatch_x, 1u);
+}
 }

@@ -153,7 +153,7 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
         return;
     }
     let ndc = temp.xyz / temp.w;
-    if (abs(ndc.x)>1.2 || abs(ndc.y)>1.2) {
+    if (abs(ndc.x)>100 || abs(ndc.y)>1.2) {
         return;
     }
 
@@ -236,7 +236,7 @@ fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
     sort_indices[slot] = idx;
     sort_depths[slot] = bitcast<u32>(100.0 - t.z);
 
-    let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
+    let keys_per_dispatch = 3840u; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
     if (slot % keys_per_dispatch == 0u) {
         atomicAdd(&sort_dispatch.dispatch_x, 1u);

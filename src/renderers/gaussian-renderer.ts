@@ -8,6 +8,8 @@ export interface GaussianRenderer extends Renderer {
   set_Gaussian_scaling: (scaling: number) => void,
 }
 
+const PREPROCESS_WG = 256;
+
 // Utility to create GPU buffers
 const createBuffer = (
   device: GPUDevice,
@@ -29,6 +31,25 @@ export default function get_renderer(
 ): GaussianRenderer {
 
   const sorter = get_sorter(pc.num_points, device);
+
+  //analysis
+  const readback_buffer = device.createBuffer({
+    size: 4,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+  let reading = false;
+  setInterval(async () => {
+    if (reading) return;
+    reading = true;
+    const enc = device.createCommandEncoder();
+    enc.copyBufferToBuffer(sorter.sort_info_buffer, 0, readback_buffer, 0, 4);
+    device.queue.submit([enc.finish()]);
+    await readback_buffer.mapAsync(GPUMapMode.READ);
+    const visible = new Uint32Array(readback_buffer.getMappedRange())[0];
+    readback_buffer.unmap();
+    console.log(`visible: ${visible} / ${pc.num_points}`);
+    reading = false;
+  }, 2000);
   
   // ===============================================
   //            Initialize GPU Buffers
@@ -76,7 +97,7 @@ export default function get_renderer(
       module: device.createShaderModule({ code: preprocessWGSL }),
       entryPoint: 'preprocess',
       constants: {
-        workgroupSize: C.histogram_wg_size,
+        workgroupSize: PREPROCESS_WG,
         sortKeyPerThread: c_histogram_block_rows,
       },
     },
@@ -162,7 +183,7 @@ export default function get_renderer(
     pass.setBindGroup(1, preprocess_gaussion_bind_group);
     pass.setBindGroup(2, sort_bind_group);
     
-    pass.dispatchWorkgroups(Math.ceil(pc.num_points / C.histogram_wg_size));
+    pass.dispatchWorkgroups(Math.ceil(pc.num_points / PREPROCESS_WG));
     pass.end();
   }
 

@@ -25,3 +25,6 @@ dist-ssr
 /.vite
 
 */scenes
+# scene files
+bicycle/
+bonsai/

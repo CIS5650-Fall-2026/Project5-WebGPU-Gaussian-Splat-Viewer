@@ -57,9 +57,27 @@ struct Gaussian {
 
 struct Splat {
     //TODO: store information for 2D splat rendering
+    NDC: vec2<f32>,
+    size: vec2<f32>,
+    color: vec4<f32>,
+    conic_opacity: vec4<f32>
 };
 
+
+
 //TODO: bind your data here
+@group(0) @binding(0)
+var<uniform> camera: CameraUniforms;
+@group(0) @binding(1)
+var<uniform> settings: RenderSettings;
+
+@group(1) @binding(0)
+var<storage,read> gaussians : array<Gaussian>;
+@group(1) @binding(1)
+var<storage,read_write> splat: array<Splat>;
+@group(1) @binding(2)
+var<storage, read> sh_buffer: array<u32>;
+
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
 @group(2) @binding(1)
@@ -72,7 +90,13 @@ var<storage, read_write> sort_dispatch: DispatchIndirect;
 /// reads the ith sh coef from the storage buffer 
 fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
     //TODO: access your binded sh_coeff, see load.ts for how it is stored
-    return vec3<f32>(0.0);
+    let h = splat_idx * 48u + c_idx * 3u;
+    let w0 = unpack2x16float(sh_buffer[h/2u]);
+    let w1 = unpack2x16float(sh_buffer[h/2u + 1u]);
+    if (h % 2u == 0u){
+        return vec3<f32>(w0.x, w0.y, w1.x);
+    }
+    return vec3<f32>(w0.y, w1.x, w1.y);
 }
 
 // spherical harmonics evaluation with Condon–Shortley phase
@@ -112,7 +136,109 @@ fn computeColorFromSH(dir: vec3<f32>, v_idx: u32, sh_deg: u32) -> vec3<f32> {
 fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
     let idx = gid.x;
     //TODO: set up pipeline as described in instruction
+    if (idx >= arrayLength(&gaussians)){
+        return;
+    }
 
-    let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
+
+    let instance = gaussians[idx];
+    let a = unpack2x16float(instance.pos_opacity[0]);
+    let b = unpack2x16float(instance.pos_opacity[1]);
+    let pos = vec4<f32>(a.x, a.y, b.x, 1.);
+    let temp = camera.proj * camera.view * pos;
+    let opacity = 1.0/(1.0+exp(-b.y));
+
+    //culling
+    if (temp.w <= 0.0) {
+        return;
+    }
+    let ndc = temp.xyz / temp.w;
+    if (abs(ndc.x)>100 || abs(ndc.y)>1.2) {
+        return;
+    }
+
+    let rot01 = unpack2x16float(instance.rot[0]);
+    let rot23 = unpack2x16float(instance.rot[1]);
+    var w = rot01.x;
+    var x = rot01.y;
+    var y = rot23.x;
+    var z = rot23.y;
+    let quat = normalize(vec4<f32>(x, y, z, w));
+    w = quat.w;
+    x = quat.x;
+    y = quat.y;
+    z = quat.z; 
+
+    let scale01 = unpack2x16float(instance.scale[0]);
+    let scale23 = unpack2x16float(instance.scale[1]);
+    let scale = exp(vec3<f32>(scale01.x, scale01.y, scale23.x)) * settings.gaussian_scaling;
+
+    let R = mat3x3<f32>(
+        1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+        2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+        2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y)
+    );
+
+    let S = mat3x3<f32>(
+        scale.x, 0.0, 0.0,
+        0.0, scale.y, 0.0,
+        0.0, 0.0, scale.z
+    );
+
+    let M = R * S;
+    let sigma = M * transpose(M);
+    var t = (camera.view*pos).xyz;
+    let tan_fov = 0.5 * camera.viewport / camera.focal;
+    let lim = 1.3 * tan_fov;
+    //clamp
+    t.x = clamp(t.x/t.z, -lim.x, lim.x) * t.z;
+    t.y = clamp(t.y/t.z, -lim.y, lim.y) * t.z;
+
+    let fx = camera.focal.x;
+    let fy = camera.focal.y;
+    let J = mat3x3<f32>(
+        fx/t.z, 0.0, 0.0,
+        0, fy/t.z, 0.0,
+        -fx*t.x/(t.z*t.z), -fy*t.y/(t.z*t.z), 0.0
+    );
+    let view = camera.view;
+    let view_inv = camera.view_inv;
+    let W = mat3x3<f32>(
+        view[0].xyz, view[1].xyz, view[2].xyz
+    );
+    let T = J * W;
+    let cov = T * sigma * transpose(T);
+    let cova = cov[0][0] + 0.3;
+    let covb = cov[0][1];
+    let covc = cov[1][1] + 0.3;
+    let det = cova * covc - covb * covb;
+    if (det <= 0.0) {
+        return;
+    }
+
+    let cam_pos = view_inv[3].xyz;
+    let dir = normalize(pos.xyz - cam_pos);
+    let color = computeColorFromSH(dir, idx, u32(settings.sh_deg));
+
+    let conic = vec3<f32>(covc, -covb, cova) / det;
+    let mid = 0.5 * (cova + covc);
+    let lambda1 = mid + sqrt(max(0.1, mid*mid - det));
+    let lambda2 = mid - sqrt(max(0.1, mid*mid - det));
+    let radius = ceil(sqrt(max(lambda1, lambda2)) * 3.0);
+    let size = 2 * radius / camera.viewport;
+
+    splat[idx].NDC = ndc.xy;
+    splat[idx].size = size;
+    splat[idx].color = vec4<f32>(color, 1.0);
+    splat[idx].conic_opacity = vec4<f32>(conic, opacity);
+
+    let slot = atomicAdd(&sort_infos.keys_size, 1u);
+    sort_indices[slot] = idx;
+    sort_depths[slot] = bitcast<u32>(100.0 - t.z);
+
+    let keys_per_dispatch = 3840u; 
     // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+    if (slot % keys_per_dispatch == 0u) {
+        atomicAdd(&sort_dispatch.dispatch_x, 1u);
+    }
 }

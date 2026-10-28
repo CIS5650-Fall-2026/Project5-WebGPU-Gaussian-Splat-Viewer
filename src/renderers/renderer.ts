@@ -51,6 +51,7 @@ export default async function init(
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
+    frustum_culling: true
   };
 
   const pane = new Pane({
@@ -74,6 +75,11 @@ export default async function init(
     });
   }
   {
+    pane.addInput(params, 'frustum_culling').on('change', (e) => {
+      gaussian_renderer?.setCulling(e.value);
+    });
+  }
+  {
     pane.addInput(params, 'ply_file', {
       view: 'file-input',
       lineCount: 3,
@@ -86,6 +92,8 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer.setGaussianMultiplier(params.gaussian_multiplier);
+        gaussian_renderer.setCulling(params.frustum_culling);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -121,7 +129,8 @@ export default async function init(
       'gaussian_multiplier',
       {min: 0, max: 1.5}
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      // Bind constants to the gaussian renderer.
+      gaussian_renderer?.setGaussianMultiplier(e.value);
     });
   }
 

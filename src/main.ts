@@ -21,7 +21,10 @@ import { assert } from './utils/util';
   const device = await adapter.requestDevice({
     requiredLimits: { 
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
-      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize
+      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize,
+      maxBufferSize: adapter.limits.maxBufferSize
+      // this is required to add for the uncleaned bicycle scene to load
+      // otherwise, createBuffer will just fail
      },
   });
 

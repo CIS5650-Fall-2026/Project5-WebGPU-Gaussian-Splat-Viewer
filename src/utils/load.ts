@@ -11,6 +11,7 @@ const c_size_3d_gaussian =
   + 4 * c_size_float  //scale
 ;
 
+// This loads 3D gaussian data into the GPU.
 export type PointCloud = Awaited<ReturnType<typeof load>>;
 
 export async function load(file: string, device: GPUDevice) {

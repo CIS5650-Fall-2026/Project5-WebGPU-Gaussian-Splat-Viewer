@@ -34,8 +34,11 @@ fn vs_main(
     let b = unpack2x16float(vertex.pos_opacity[1]);
     let pos = vec4<f32>(a.x, a.y, b.x, 1.);
 
-    // TODO: MVP calculations
-    out.position = pos;
+    // MVP calculations
+    // Each gaussian is essentially a pixel/vertex to make a basic point cloud.
+    // what happens here is world -> camera space -> projection, mapping the viewing frustum
+    // no need to divide by w here (ndc and pixel stuff will be for later...)
+    out.position = camera.proj * camera.view * pos;
 
     return out;
 }

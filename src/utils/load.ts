@@ -1,4 +1,5 @@
 import { Float16Array } from '@petamoriken/float16';
+import { vec3 } from 'wgpu-matrix';
 import { log, time, timeLog } from './simple-console';
 import { decodeHeader, readRawVertex ,nShCoeffs} from './plyreader';
 
@@ -78,10 +79,19 @@ export async function load(file: string, device: GPUDevice) {
   });
   const sh = new Float16Array(sh_buffer.getMappedRange());
 
+  const bounds_min = vec3.create(Infinity, Infinity, Infinity);
+  const bounds_max = vec3.create(-Infinity, -Infinity, -Infinity);
   var readOffset = 0;
   for (let i = 0; i < num_points; i++) {
     const [newReadOffset, rawVertex] = readRawVertex(readOffset, vertexData, propertyTypes);
     readOffset = newReadOffset;
+
+    bounds_min[0] = Math.min(bounds_min[0], rawVertex.x);
+    bounds_min[1] = Math.min(bounds_min[1], rawVertex.y);
+    bounds_min[2] = Math.min(bounds_min[2], rawVertex.z);
+    bounds_max[0] = Math.max(bounds_max[0], rawVertex.x);
+    bounds_max[1] = Math.max(bounds_max[1], rawVertex.y);
+    bounds_max[2] = Math.max(bounds_max[2], rawVertex.z);
 
     const o = i * (c_size_3d_gaussian / c_size_float);
     const output_offset = i * max_num_coefs * 3;
@@ -117,5 +127,7 @@ export async function load(file: string, device: GPUDevice) {
     sh_deg: sh_deg,
     gaussian_3d_buffer,
     sh_buffer,
+    bounds_min,
+    bounds_max,
   };
 }

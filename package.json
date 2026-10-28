@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "benchmark": "node benchmarks/run-benchmark.mjs"
   },
   "devDependencies": {
     "@tweakpane/core": "^1.1.7",
-    "tweakpane-plugin-file-import": "^0.2.0",
     "@webgpu/types": "^0.1.31",
+    "playwright-core": "^1.64.1",
+    "tweakpane-plugin-file-import": "^0.2.0",
     "typescript": "^5.0.4",
     "vite": "^4.3.1",
     "vite-raw-plugin": "^1.0.1"

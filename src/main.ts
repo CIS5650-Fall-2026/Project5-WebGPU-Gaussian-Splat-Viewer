@@ -18,11 +18,23 @@ import { assert } from './utils/util';
     return;
   }
   
+  const requiredLimits: Record<string, number> = {
+    maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
+    maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+    // Large scenes can allocate buffers above the WebGPU default 256 MiB limit
+    maxBufferSize: adapter.limits.maxBufferSize,
+  };
+  const requiredFeatures: GPUFeatureName[] = [];
+  if (adapter.features.has('shader-f16')) {
+    requiredFeatures.push('shader-f16');
+  }
   const device = await adapter.requestDevice({
-    requiredLimits: { 
-      maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
-      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize
-     },
+    requiredFeatures,
+    requiredLimits,
+  });
+  device.addEventListener('uncapturederror', (event) => {
+    const error_event = event as GPUUncapturedErrorEvent;
+    console.error(`WebGPU validation error: ${error_event.error.message}`);
   });
 
   const canvas = document.querySelector<HTMLCanvasElement>('#webgpu-canvas');

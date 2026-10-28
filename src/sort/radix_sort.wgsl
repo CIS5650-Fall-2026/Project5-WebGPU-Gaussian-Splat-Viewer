@@ -62,12 +62,13 @@ fn zero_histograms(@builtin(global_invocation_id) gid : vec3<u32>, @builtin(num_
     let scatter_wg_size = histogram_wg_size;
     let scatter_block_kvs = scatter_wg_size * rs_scatter_block_rows;
     let scatter_blocks_ru = (infos.keys_size + scatter_block_kvs - 1u) / scatter_block_kvs;
+    let padded_size = scatter_blocks_ru * scatter_block_kvs;
     
     let histo_size = rs_radix_size;
     var n = (rs_keyval_size + scatter_blocks_ru - 1u) * histo_size;
     let b = n;
-    if infos.keys_size < infos.padded_size {
-        n += infos.padded_size - infos.keys_size;
+    if infos.keys_size < padded_size {
+        n += padded_size - infos.keys_size;
     }
     
     let line_size = nwg.x * histogram_wg_size;

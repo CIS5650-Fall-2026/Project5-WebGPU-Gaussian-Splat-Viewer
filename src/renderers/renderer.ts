@@ -48,6 +48,8 @@ export default async function init(
   const params = {
     fps: 0.0,
     gaussian_multiplier: 1,
+    culling: true,
+    point_fraction: 1.0,
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
@@ -84,8 +86,18 @@ export default async function init(
       const uploadedFile = file.value;
       if (uploadedFile) {
         const pc = await load(uploadedFile, device);
+        camera.set_scene_bounds(pc.bounds_min, pc.bounds_max);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
-        gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer = get_renderer_gaussian(
+          pc,
+          device,
+          presentation_format,
+          canvas,
+          camera.uniform_buffer,
+          params.gaussian_multiplier,
+          params.culling,
+          params.point_fraction,
+        );
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -121,7 +133,21 @@ export default async function init(
       'gaussian_multiplier',
       {min: 0, max: 1.5}
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_gaussian_scaling(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'culling').on('change', (e) => {
+      gaussian_renderer?.set_culling(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'point_fraction', {
+      min: 0.05,
+      max: 1.0,
+      step: 0.05,
+    }).on('change', (e) => {
+      gaussian_renderer?.set_point_fraction(e.value);
     });
   }
 
@@ -146,7 +172,8 @@ export default async function init(
 
   function frame() {
     if (ply_file_loaded && cam_file_loaded) {
-      params.fps=1.0/timeReturn()*1000.0;
+      const instant_fps = 1.0 / timeReturn() * 1000.0;
+      params.fps = params.fps > 0 ? params.fps * 0.9 + instant_fps * 0.1 : instant_fps;
       time();
       const encoder = device.createCommandEncoder();
       const texture_view = context.getCurrentTexture().createView();

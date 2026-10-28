@@ -1,3 +1,5 @@
+// This shader is used to render a point cloud using the camera's view and projection matrices
+
 struct CameraUniforms {
     view: mat4x4<f32>,
     view_inv: mat4x4<f32>,
@@ -34,8 +36,7 @@ fn vs_main(
     let b = unpack2x16float(vertex.pos_opacity[1]);
     let pos = vec4<f32>(a.x, a.y, b.x, 1.);
 
-    // TODO: MVP calculations
-    out.position = pos;
+    out.position = camera.proj * camera.view * pos;
 
     return out;
 }

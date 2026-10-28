@@ -9,12 +9,14 @@ lerna-debug.log*
 
 node_modules
 dist
+benchmarks/results/
 dist-ssr
 *.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+.vs/
 .idea
 .DS_Store
 *.suo
@@ -25,3 +27,4 @@ dist-ssr
 /.vite
 
 */scenes
+/scenes/

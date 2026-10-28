@@ -62,6 +62,7 @@ function get_projection_matrix(znear: number, zfar: number, fov_x: number, fov_y
 interface CameraPreset {
   position: Vec3,
   rotation: Mat4,
+  fovY: number,
 }
 
 export async function load_camera_presets(file: string): Promise<CameraPreset[]> {
@@ -84,10 +85,14 @@ export async function load_camera_presets(file: string): Promise<CameraPreset[]>
     const position = vec3.clone(j.position);
     // const rotation = mat3.create(...j.rotation.flat());
     const rotation = mat4.fromMat3(mat3.create(...j.rotation.flat()));
+    const fovY = Number.isFinite(j.fy) && j.fy > 0 && j.height > 0
+      ? focal2fov(j.fy, j.height)
+      : 45 / 180 * Math.PI;
 
     return {
       position,
       rotation,
+      fovY,
     };
   });
 }
@@ -145,6 +150,10 @@ export class Camera {
   private fovX: number;
   private focal: Vec2 = vec2.create();
   private viewport: Vec2 = vec2.create();
+  private near: number = 0.01;
+  private far: number = 100;
+  private scene_bounds_min: Vec3 | undefined;
+  private scene_bounds_max: Vec3 | undefined;
 
   private view_matrix: Mat4 = mat4.identity();
   private proj_matrix: Mat4 = mat4.identity();
@@ -156,8 +165,9 @@ export class Camera {
   update_buffer(): void {
     let offset = 0;
 
+    this.update_clip_planes();
     this.view_matrix = get_view_matrix(this.rotation, this.position);
-    this.proj_matrix = get_projection_matrix(0.01, 100, this.fovX, this.fovY);
+    this.proj_matrix = get_projection_matrix(this.near, this.far, this.fovX, this.fovY);
 
     const inv_view_matrix = mat4.inverse(this.view_matrix);
     vec3.transformMat4Upper3x3(vec3.create(0, 0, 1), inv_view_matrix, this.look);
@@ -181,10 +191,35 @@ export class Camera {
 
     this.device.queue.writeBuffer(this.uniform_buffer, 0, intermediate_float_32_array);
   }
+
+  // Update the near and far clip planes based on the scene bounds and camera position
+  private update_clip_planes(): void {
+    if (!this.scene_bounds_min || !this.scene_bounds_max) {
+      this.far = 100;
+      return;
+    }
+
+    const center = vec3.mulScalar(
+      vec3.add(this.scene_bounds_min, this.scene_bounds_max),
+      0.5,
+    );
+    const radius = 0.5 * vec3.length(vec3.subtract(this.scene_bounds_max, this.scene_bounds_min));
+    const distance_to_center = vec3.length(vec3.subtract(this.position, center));
+    this.far = Math.max(this.near + 1, distance_to_center + radius * 1.05);
+  }
+
+  set_scene_bounds(min: Vec3, max: Vec3): void {
+    this.scene_bounds_min = vec3.clone(min);
+    this.scene_bounds_max = vec3.clone(max);
+    this.update_buffer();
+  }
+
   set_preset(preset: CameraPreset): void {
     vec3.copy(preset.position, this.position);
     mat4.copy(preset.rotation, this.rotation);
-    this.update_buffer();
+    this.fovY = preset.fovY;
+    this.on_update_canvas();
+    log(`camera intrinsics: fovY=${(this.fovY * 180 / Math.PI).toFixed(2)} deg, far=${this.far.toFixed(2)}`);
   }
 
 };

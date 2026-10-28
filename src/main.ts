@@ -21,7 +21,9 @@ import { assert } from './utils/util';
   const device = await adapter.requestDevice({
     requiredLimits: { 
       maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
-      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize
+      maxStorageBufferBindingSize: adapter.limits. maxStorageBufferBindingSize,
+      // the SH buffer of large scenes (e.g. bicycle_30000.ply, ~590 MB) exceeds the 256 MB default
+      maxBufferSize: adapter.limits.maxBufferSize,
      },
   });
 

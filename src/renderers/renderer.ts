@@ -48,6 +48,10 @@ export default async function init(
   const params = {
     fps: 0.0,
     gaussian_multiplier: 1,
+    sh_degree: 0,
+    frustum_culling: true,
+    gaussian_stride: 1,
+    active_gaussians: 0,
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
@@ -58,6 +62,33 @@ export default async function init(
     expanded: true,
   });
   pane.registerPlugin(TweakpaneFileImportPlugin);
+  let sh_degree_input: ReturnType<typeof pane.addInput> | undefined;
+  const update_sh_degree_control = (available_degree: number): void => {
+    sh_degree_input?.dispose();
+  
+    const max_degree = Math.max(
+      0,
+      Math.min(3, Math.floor(available_degree)),
+    );
+  
+    params.sh_degree = Math.max(
+      0,
+      Math.min(params.sh_degree, max_degree),
+    );
+  
+    const options: Record<string, number> = {};
+  
+    for (let degree = 0; degree <= max_degree; degree++) {
+      options[degree] = degree;
+    }
+  
+    sh_degree_input = pane.addInput(params, 'sh_degree', {
+      label: 'SH degree',
+      options,
+    }).on('change', (e) => {
+      gaussian_renderer?.set_sh_degree(e.value);
+    });
+  };
   {
     pane.addMonitor(params, 'fps', {
       readonly:true
@@ -86,6 +117,11 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer.set_gaussian_scaling(params.gaussian_multiplier);
+        update_sh_degree_control(pc.sh_deg);
+        gaussian_renderer.set_sh_degree(params.sh_degree);
+        gaussian_renderer.set_frustum_culling(params.frustum_culling);
+        params.active_gaussians = gaussian_renderer.set_gaussian_stride(params.gaussian_stride);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -119,9 +155,36 @@ export default async function init(
     pane.addInput(
       params,
       'gaussian_multiplier',
-      {min: 0, max: 1.5}
+      { min: 0, max: 1.5 },
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_gaussian_scaling(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'frustum_culling', {
+      label: 'Frustum culling',
+    }).on('change', (e) => {
+      gaussian_renderer?.set_frustum_culling(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'gaussian_stride', {
+      label: 'Gaussian fraction',
+      options: {
+        '100%': 1,
+        '50%': 2,
+        '25%': 4,
+      },
+    }).on('change', (e) => {
+      if (gaussian_renderer) {
+        params.active_gaussians =
+          gaussian_renderer.set_gaussian_stride(e.value);
+      }
+    });
+
+    pane.addMonitor(params, 'active_gaussians', {
+      label: 'Input Gaussians',
+      format: (value) => value.toFixed(0),
     });
   }
 

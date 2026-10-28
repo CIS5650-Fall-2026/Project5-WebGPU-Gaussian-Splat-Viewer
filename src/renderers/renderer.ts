@@ -48,6 +48,7 @@ export default async function init(
   const params = {
     fps: 0.0,
     gaussian_multiplier: 1,
+    f16_preprocessing: device.features.has('shader-f16'),
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
@@ -86,6 +87,8 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer.set_gaussian_scaling(params.gaussian_multiplier);
+        gaussian_renderer.set_f16_preprocessing(params.f16_preprocessing);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -116,12 +119,20 @@ export default async function init(
     });
   }
   {
+    pane.addInput(params, 'f16_preprocessing', {
+      label: 'f16 preprocess',
+      disabled: !device.features.has('shader-f16'),
+    }).on('change', (e) => {
+      gaussian_renderer?.set_f16_preprocessing(e.value);
+    });
+  }
+  {
     pane.addInput(
       params,
       'gaussian_multiplier',
       {min: 0, max: 1.5}
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_gaussian_scaling(e.value);
     });
   }
 
@@ -139,13 +150,13 @@ export default async function init(
       case '9':
         const i = parseInt(event.key);
         console.log(`set to camera preset ${i}`);
-        camera.set_preset(cameras[i]);
+        if (cameras?.[i]) camera.set_preset(cameras[i]);
         break;
     }
   });
 
   function frame() {
-    if (ply_file_loaded && cam_file_loaded) {
+    if (ply_file_loaded && renderer) {
       params.fps=1.0/timeReturn()*1000.0;
       time();
       const encoder = device.createCommandEncoder();

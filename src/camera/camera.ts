@@ -140,7 +140,7 @@ export class Camera {
   readonly uniform_buffer: GPUBuffer;
   
   position = vec3.create();
-  rotation = mat4.create();
+  rotation = mat4.identity();
   private fovY: number = 45 / 180 * Math.PI;
   private fovX: number;
   private focal: Vec2 = vec2.create();

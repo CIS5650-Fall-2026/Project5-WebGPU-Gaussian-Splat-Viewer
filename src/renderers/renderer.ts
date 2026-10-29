@@ -5,10 +5,12 @@ import { default as get_renderer_gaussian, GaussianRenderer } from './gaussian-r
 import { default as get_renderer_pointcloud } from './point-cloud-renderer';
 import { Camera, load_camera_presets} from '../camera/camera';
 import { CameraControl } from '../camera/camera-control';
+import { GpuTimer } from '../utils/gpu-timer';
 import { time, timeReturn } from '../utils/simple-console';
+import { create_gpu_timer } from '../utils/gpu-timer';
 
 export interface Renderer {
-  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => void,
+  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView, timer?: GpuTimer | null) => void,
   camera_buffer: GPUBuffer,
 }
 
@@ -24,7 +26,20 @@ export default async function init(
   let pointcloud_renderer: Renderer | undefined; 
   let renderer: Renderer | undefined; 
   let cameras;
+  let num_points = 0;
+
+  // pushes the current GUI state into a freshly created gaussian renderer
+  const apply_gaussian_settings = () => {
+    if (!gaussian_renderer) return;
+    gaussian_renderer.set_gaussian_multiplier(params.gaussian_multiplier);
+    gaussian_renderer.set_frustum_culling(params.frustum_culling);
+    gaussian_renderer.set_workgroup_size(params.workgroup_size);
+    gaussian_renderer.set_num_active(num_points * params.gaussian_percent / 100);
+  };
   
+  // null when the device lacks 'timestamp-query'; the GPU timing monitors are hidden then
+  const gpu_timer = create_gpu_timer(device, ['preprocess', 'sort', 'render']);
+
   const camera = new Camera(canvas, device);
   const control = new CameraControl(camera);
 
@@ -48,6 +63,9 @@ export default async function init(
   const params = {
     fps: 0.0,
     gaussian_multiplier: 1,
+    frustum_culling: true,
+    workgroup_size: 256,
+    gaussian_percent: 100,
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
@@ -62,6 +80,13 @@ export default async function init(
     pane.addMonitor(params, 'fps', {
       readonly:true
     });
+  }
+  if (gpu_timer) {
+    // averaged over the last 30 timed frames; 0 means the pass is not used by the current renderer
+    const folder = pane.addFolder({ title: 'GPU time (ms)' });
+    for (const key of ['preprocess', 'sort', 'render', 'total']) {
+      folder.addMonitor(gpu_timer.results, key, { format: (v: number) => v.toFixed(3) });
+    }
   }
   {
     pane.addInput(params, 'renderer', {
@@ -86,6 +111,8 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        num_points = pc.num_points;
+        apply_gaussian_settings();
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -121,7 +148,28 @@ export default async function init(
       'gaussian_multiplier',
       {min: 0, max: 1.5}
     ).on('change', (e) => {
-      //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_gaussian_multiplier(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'frustum_culling').on('change', (e) => {
+      gaussian_renderer?.set_frustum_culling(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'workgroup_size', {
+      options: Object.fromEntries([16, 32, 64, 128, 256, 512, 1024]
+        .filter((size) => size <= device.limits.maxComputeInvocationsPerWorkgroup)
+        .map((size) => [String(size), size])),
+    }).on('change', (e) => {
+      gaussian_renderer?.set_workgroup_size(e.value);
+    });
+  }
+  {
+    pane.addInput(params, 'gaussian_percent', {
+      min: 1, max: 100, step: 1,
+    }).on('change', (e) => {
+      gaussian_renderer?.set_num_active(num_points * e.value / 100);
     });
   }
 
@@ -150,8 +198,10 @@ export default async function init(
       time();
       const encoder = device.createCommandEncoder();
       const texture_view = context.getCurrentTexture().createView();
-      renderer.frame(encoder, texture_view);
+      renderer.frame(encoder, texture_view, gpu_timer);
+      gpu_timer?.resolve(encoder);
       device.queue.submit([encoder.finish()]);
+      gpu_timer?.read();
     }
     requestAnimationFrame(frame);
   }

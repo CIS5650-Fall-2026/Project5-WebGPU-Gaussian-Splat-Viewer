@@ -62,7 +62,6 @@ export default function get_renderer(
     frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => {
       render(encoder, texture_view);
     },
-
     camera_buffer,
   };
 }

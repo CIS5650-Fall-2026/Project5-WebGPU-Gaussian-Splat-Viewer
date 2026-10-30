@@ -122,6 +122,7 @@ export default async function init(
       {min: 0, max: 1.5}
     ).on('change', (e) => {
       //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer.setScale(e.value);
     });
   }
 

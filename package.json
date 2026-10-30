@@ -9,10 +9,10 @@
   },
   "devDependencies": {
     "@tweakpane/core": "^1.1.7",
+    "@webgpu/types": "^0.1.74",
     "tweakpane-plugin-file-import": "^0.2.0",
-    "@webgpu/types": "^0.1.31",
     "typescript": "^5.0.4",
-    "vite": "^4.3.1",
+    "vite": "^8.3.5",
     "vite-raw-plugin": "^1.0.1"
   },
   "dependencies": {

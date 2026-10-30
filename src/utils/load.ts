@@ -36,6 +36,7 @@ export async function load(file: string, device: GPUDevice) {
   }
   const nCoeffsPerColor = nRestCoeffs / 3;
   const sh_deg = Math.sqrt(nCoeffsPerColor + 1) - 1;
+  console.log("Sh Deg: " + sh_deg);
   const num_coefs = nShCoeffs(sh_deg);
   const max_num_coefs = 16;
 

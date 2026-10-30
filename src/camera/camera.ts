@@ -166,6 +166,8 @@ export class Camera {
     vec3.cross(this.up, this.look, this.right);
     vec3.normalize(this.right, this.right);
 
+    // console.log("Position from Matrix: x: " + inv_view_matrix[12] + " y: " + inv_view_matrix[13] + " z: " + inv_view_matrix[14] + " Position: " + this.position);
+
     intermediate_float_32_array.set(this.view_matrix, offset);
     offset += 16;
     intermediate_float_32_array.set(inv_view_matrix, offset);

@@ -7,6 +7,8 @@ export default function get_renderer(
   device: GPUDevice,
   presentation_format: GPUTextureFormat,
   camera_buffer: GPUBuffer): Renderer {
+
+    console.log("Should be here");
   const render_shader = device.createShaderModule({code: pointcloud_wgsl});
   const render_pipeline = device.createRenderPipeline({
     label: 'render',

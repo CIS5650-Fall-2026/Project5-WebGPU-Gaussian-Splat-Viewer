@@ -20,9 +20,8 @@
     "strict": false,
     "noFallthroughCasesInSwitch": true,
     /* types */
-    "typeRoots": [
+    "types": [
       "./node_modules/@webgpu/types",
-      "./node_modules/tweakpane/dist/type/"
     ],
   },
   "include": [

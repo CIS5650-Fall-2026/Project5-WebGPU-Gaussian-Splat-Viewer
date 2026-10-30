@@ -19,6 +19,7 @@ const SH_C3 = array<f32,7>(
 
 override workgroupSize: u32;
 override sortKeyPerThread: u32;
+override numGaussians: u32;
 
 struct DispatchIndirect {
     dispatch_x: atomic<u32>,
@@ -41,12 +42,14 @@ struct CameraUniforms {
     proj: mat4x4<f32>,
     proj_inv: mat4x4<f32>,
     viewport: vec2<f32>,
-    focal: vec2<f32>
+    focal: vec2<f32> // Usually to project we have xProj = xCam / (z*tan(fov/2))
+                     // Then to get to pixel space we also mult Dim/2, focal just encodes all that in a multiplication
 };
 
 struct RenderSettings {
     gaussian_scaling: f32,
     sh_deg: f32,
+    dt: f32,
 }
 
 struct Gaussian {
@@ -56,10 +59,24 @@ struct Gaussian {
 };
 
 struct Splat {
-    //TODO: store information for 2D splat rendering
+    screen_pos: vec4f,
+    cov_inv: vec3f,
+    mean_2D: vec2<f32>,
+    pixel_radius: f32,
+    opacity: f32,
+    col: vec4f
 };
 
-//TODO: bind your data here
+@group(0) @binding(0)
+var<uniform> camera: CameraUniforms;
+
+@group(1) @binding(0)
+var<storage,read> gaussians : array<Gaussian>;
+@group(1) @binding(1)
+var<storage, read> sh_coeffs : array<u32>;
+@group(1) @binding(2)
+var<uniform> render_settings: RenderSettings;
+
 @group(2) @binding(0)
 var<storage, read_write> sort_infos: SortInfos;
 @group(2) @binding(1)
@@ -69,10 +86,23 @@ var<storage, read_write> sort_indices : array<u32>;
 @group(2) @binding(3)
 var<storage, read_write> sort_dispatch: DispatchIndirect;
 
+@group(3) @binding(0)
+var<storage,read_write> splats : array<Splat>;
+
 /// reads the ith sh coef from the storage buffer 
 fn sh_coef(splat_idx: u32, c_idx: u32) -> vec3<f32> {
     //TODO: access your binded sh_coeff, see load.ts for how it is stored
-    return vec3<f32>(0.0);
+    let start_index = splat_idx * 16 * 3 + c_idx * 3;
+    
+    let converted_index = start_index/2;
+    let mod_index = start_index%2;
+
+    let sh_piece_1 = unpack2x16float(sh_coeffs[converted_index]);
+    let sh_piece_2 = unpack2x16float(sh_coeffs[converted_index+1]);
+    let full_sh = vec4(sh_piece_1, sh_piece_2);
+    let sh = select(full_sh.yzw, full_sh.xyz, mod_index == 0);
+
+    return sh;
 }
 
 // spherical harmonics evaluation with Condon–Shortley phase
@@ -108,11 +138,124 @@ fn computeColorFromSH(dir: vec3<f32>, v_idx: u32, sh_deg: u32) -> vec3<f32> {
     return  max(vec3<f32>(0.), result);
 }
 
+fn quatToRotationMatrix(q: vec4f) -> mat3x3f {
+    let r = q.x;
+	let x = q.y;
+	let y = q.z;
+	let z = q.w;
+
+    return transpose(mat3x3f(
+        1.f - 2.f * (y * y + z * z), 2.f * (x * y - r * z), 2.f * (x * z + r * y),
+        2.f * (x * y + r * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - r * x),
+        2.f * (x * z - r * y), 2.f * (y * z + r * x), 1.f - 2.f * (x * x + y * y)
+    ));
+}
+
+fn sigmoid(v: f32) -> f32 {
+    return 1.0 / (1.0 + exp(-v));
+}
+
+fn offset_pos(p: vec3f) -> vec3f {
+    return p;
+}
+
 @compute @workgroup_size(workgroupSize,1,1)
 fn preprocess(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wgs: vec3<u32>) {
     let idx = gid.x;
-    //TODO: set up pipeline as described in instruction
+    if(idx >= numGaussians) {
+        return;
+    }
 
     let keys_per_dispatch = workgroupSize * sortKeyPerThread; 
-    // increment DispatchIndirect.dispatchx each time you reach limit for one dispatch of keys
+
+    // Get gaussian data
+    let gauss = gaussians[idx];
+
+    // Create splat
+    var splat : Splat = Splat();
+    let posXY = unpack2x16float(gauss.pos_opacity[0]);
+    let posZOpacity = unpack2x16float(gauss.pos_opacity[1]);
+    var gaussPos_world = vec4(posXY, posZOpacity.x, 1.0);
+    let rawScale = vec4(unpack2x16float(gauss.scale[0]), unpack2x16float(gauss.scale[1]));
+    let rotQuat = vec4(unpack2x16float(gauss.rot[0]), unpack2x16float(gauss.rot[1]));
+
+    // Opacity
+    let opacity = sigmoid(posZOpacity.y);
+    splat.opacity = opacity;
+
+    // Positions
+    let gaussPos_view = camera.view * gaussPos_world;
+    var gaussPos_screen = camera.proj * gaussPos_view;
+    let proj_w = gaussPos_screen.w;
+    gaussPos_screen /= proj_w;
+    splat.mean_2D = 0.5*gaussPos_screen.xy*vec2f(camera.viewport);
+    splat.screen_pos = gaussPos_screen;
+
+    // Color
+    let camera_pos = camera.view_inv[3].xyz;
+    splat.col = vec4(computeColorFromSH(normalize(gaussPos_world.xyz - camera_pos), idx, 3u), 0.0);
+
+    // Covar World
+    let scale = render_settings.gaussian_scaling * exp(rawScale.xyz);
+    let scaleMatrix = mat3x3f(
+        scale.x, 0.0, 0.0, 
+        0.0, scale.y, 0.0, 
+        0.0, 0.0, scale.z
+        );
+    let rotMatrix = quatToRotationMatrix(normalize(rotQuat));
+    let covar_3D_world =  rotMatrix * scaleMatrix * transpose(scaleMatrix) * transpose(rotMatrix);
+
+    // Covar screen
+    let camera_view_3x3 = mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz);
+    let camZ = gaussPos_view.z;
+    let camZ2 = camZ*camZ;
+    let proj_jacobian = mat3x2(
+        camera.focal.x / camZ, 0.0, 
+        0.0, -camera.focal.y / camZ, 
+        -camera.focal.x * gaussPos_view.x / camZ2, camera.focal.y * gaussPos_view.y / camZ2
+        ); // Derivative of projection function f(x, y, z) -> (u, v) where projection matrix flips y
+    let T = proj_jacobian * camera_view_3x3;
+
+    var covar_2D_screen = T * covar_3D_world * transpose(T);
+
+    // covar += 0.3I (make sure invertible by making it positive definite NOT SEMI)
+    covar_2D_screen[0][0] += 0.3;
+    covar_2D_screen[1][1] += 0.3;
+
+    // Get det and encode cov as 3 floats since symmetric
+    let cov = vec3(covar_2D_screen[0][0], covar_2D_screen[1][0], covar_2D_screen[1][1]); // Cuz symmetric
+    let det = cov.x * cov.z - cov.y * cov.y;
+    
+    // Get eigenvalues for radius
+    let mid = 0.5 * (cov.x + cov.z);
+    let lambda1 = mid + sqrt(max(0.1, mid * mid - det)); // max to prevent -sqrt I think
+    let lambda2 = mid - sqrt(max(0.1, mid * mid - det));
+    // cov is PD so all eigens are positive
+    splat.pixel_radius = ceil(3.0 * sqrt(max(lambda1, lambda2)));
+
+    // Check within frustum using pixel_radius as bounding box
+    let diff = abs(splat.mean_2D) - 0.6*vec2f(camera.viewport);// - splat.pixel_radius;
+    if(
+        gaussPos_screen.z < 0. || gaussPos_screen.z > 1. || // Z Condition
+        diff.x > 0. || diff.y > 0. || 
+        proj_w <= 0. ||
+        det <= 0.
+    ) {
+        return;
+    }
+
+    // Invert cov
+    let cov_inv = vec3(cov.z, -cov.y, cov.x)/det;
+    splat.cov_inv = cov_inv;
+
+    // Add splat data
+    let ind = atomicAdd(&sort_infos.keys_size, 1u);
+    splats[ind] = splat;
+    sort_indices[ind] = ind;
+    sort_depths[ind] = bitcast<u32>(10000.-camZ); // Floats interpreted as u32 will maintain their ordering
+
+    if(ind % keys_per_dispatch == 0) {
+        atomicAdd(&sort_dispatch.dispatch_x, 1u);
+    }
+    // todo: remember fill in indices and sort depth which I guess is just bitcast<float> since it maintains order
 }

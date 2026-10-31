@@ -32,10 +32,12 @@ fn vs_main(
     let vertex = gaussians[in_vertex_index];
     let a = unpack2x16float(vertex.pos_opacity[0]);
     let b = unpack2x16float(vertex.pos_opacity[1]);
-    let pos = vec4<f32>(a.x, a.y, b.x, 1.);
+    let pos = vec4<f32>(a.x, a.y, b.x, 1.); // World space pos
 
     // TODO: MVP calculations
-    out.position = pos;
+    // out.position expects CLIP SPACE
+    // clip <- view <- world space 
+    out.position =  camera.proj * camera.view * pos;
 
     return out;
 }

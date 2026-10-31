@@ -1,26 +1,73 @@
-# Project5-WebGPU-Gaussian-Splat-Viewer
+WebGPU Gaussian Splat Viewer
+======================
 
 **University of Pennsylvania, CIS 565: GPU Programming and Architecture, Project 5**
 
-* (TODO) YOUR NAME HERE
-* Tested on: (TODO) **Google Chrome 222.2** on
-  Windows 22, i7-2222 @ 2.22GHz 22GB, GTX 222 222MB (Moore 2222 Lab)
+* Mark Melkumyan
+  * [LinkedIn](https://www.linkedin.com/in/mark-melkumyan/), [Portfolio](https://www.marklikes.art/)
+* Tested on: Google Chrome, Windows 11, i7-10750H @ 2.60GHz, 64GB RAM, GTX 1650 Ti 4096MB
 
 ### Live Demo
 
-[![](img/thumb.png)](http://TODO.github.io/Project4-WebGPU-Forward-Plus-and-Clustered-Deferred)
+[![](images/thumbnail.png)](https://mmelkumyan.github.io/Project5-WebGPU-Gaussian-Splat-Viewer)
+> Click img above to try the demo live in your browser!
 
-### Demo Video/GIF
+## What is this?
 
-[![](img/video.mp4)](TODO)
+Guassian splat render built with WebGPU and Typescript. 
 
-### (TODO: Your README)
+- **Gaussian**:
+  - *Passes:* Preprocess (compute) -> Radix sort (compute) -> Render (draw)
 
-*DO NOT* leave the README to the last minute! It is a crucial part of the
-project, and we will not be able to grade you without a good README.
+## Features
 
-This assignment has a considerable amount of performance analysis compared
-to implementation work. Complete the implementation early to leave time!
+- Load `.ply` files to render gaussians splats.
+
+### Screenshots
+
+![](images/bonsai.png)
+> Bonsai
+
+![](images/bicycle.png)
+> Bicycle
+
+## Performance analysis
+
+---
+### Point cloud vs Gaussian renderer
+
+![](images/q1_renderers.png)
+
+![](images/q1_pass_breakdown.png)
+
+#### Notes:
+
+- x
+
+---
+### Workgroup size
+
+![](images/q2_workgroup_size.png)
+
+#### Notes:
+
+- x
+
+---
+### View-frustum culling
+
+![](images/q3_culling.png)
+
+#### Notes:
+
+- x
+
+---
+### Number of gaussians
+
+![](images/q4_gaussian_count.png)
+
+![](images/q4_pass_scaling.png)
 
 ### Credits
 

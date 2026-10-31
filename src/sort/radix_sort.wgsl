@@ -292,6 +292,7 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
         let digit = extractBits(u_val, pass_ * rs_radix_log2, rs_radix_log2);
         // smem[lid.x] = digit;
         atomicStore(&smem[lid.x], digit);
+        workgroupBarrier();
         var count = 0u;
         var rank = 0u;
         
@@ -306,18 +307,30 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
         }
         
         kr[i] = (count << 16u) | rank;
+        workgroupBarrier();
     }
     
     zero_smem(lid.x);   // now zeroing the smmem as we are now accumulating the histogram there
     workgroupBarrier();
 
     // The final histogram is stored in the smem buffer
+    // [CLAUDE GENERATED]
+    // Barriers sit outside the subgroup branch so every invocation reaches them.
+    // Without them a subgroup's store can land before its neighbours' loads.
     for (var i = 0u; i < subgroup_count; i++) {
-        if subgroup_id == i {
-            for (var j = 0u; j < rs_scatter_block_rows; j++) {
-                let v = bitcast<u32>(kv[j]);
-                let digit = extractBits(v, pass_ * rs_radix_log2, rs_radix_log2);
-                let prev = histogram_load(digit);
+        for (var j = 0u; j < rs_scatter_block_rows; j++) {
+            let v = bitcast<u32>(kv[j]);
+            let digit = extractBits(v, pass_ * rs_radix_log2, rs_radix_log2);
+
+            // Read the running count for this row.
+            var prev = 0u;
+            if subgroup_id == i {
+                prev = histogram_load(digit);
+            }
+            workgroupBarrier();
+
+            // Assign offsets; the last-ranked invocation per digit bumps the count.
+            if subgroup_id == i {
                 let rank = kr[j] & 0xFFFFu;
                 let count = kr[j] >> 16u;
                 kr[j] = prev + rank;
@@ -325,12 +338,11 @@ fn scatter(pass_: u32, lid: vec3<u32>, gid: vec3<u32>, wid: vec3<u32>, nwg: vec3
                 if rank == count {
                     histogram_store(digit, (prev + count));
                 }
-                
-                // TODO: check if the barrier here is needed
-            }            
+            }
+            workgroupBarrier();
         }
-        workgroupBarrier();
     }
+    // [/CLAUDE GENERATED]
     // kr filling is now done and contains the total offset for each value to be able to 
     // move the values into order without having any collisions
     

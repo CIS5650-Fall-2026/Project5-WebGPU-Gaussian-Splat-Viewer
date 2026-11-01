@@ -8,7 +8,7 @@ import { CameraControl } from '../camera/camera-control';
 import { time, timeReturn } from '../utils/simple-console';
 
 export interface Renderer {
-  frame: (encoder: GPUCommandEncoder, texture_view: GPUTextureView) => void,
+  frame: (encoder: GPUCommandEncoder, texture: GPUTexture) => void,
   camera_buffer: GPUBuffer,
 }
 
@@ -17,14 +17,14 @@ export default async function init(
   context: GPUCanvasContext,
   device: GPUDevice
 ) {
-  let ply_file_loaded = false; 
-  let cam_file_loaded = false; 
+  let ply_file_loaded = false;
+  let cam_file_loaded = false;
   let renderers: { pointcloud?: Renderer, gaussian?: Renderer } = {};
-  let gaussian_renderer: GaussianRenderer | undefined; 
-  let pointcloud_renderer: Renderer | undefined; 
-  let renderer: Renderer | undefined; 
+  let gaussian_renderer: GaussianRenderer | undefined;
+  let pointcloud_renderer: Renderer | undefined;
+  let renderer: Renderer | undefined;
   let cameras;
-  
+
   const camera = new Camera(canvas, device);
   const control = new CameraControl(camera);
 
@@ -35,19 +35,22 @@ export default async function init(
     camera.on_update_canvas();
   });
   observer.observe(canvas);
-  
-  const presentation_format = navigator.gpu.getPreferredCanvasFormat();
+
+  const presentation_format = 'rgba8unorm';
   context.configure({
     device,
     format: presentation_format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING,
     alphaMode: 'opaque',
   });
-  
+
 
   // Tweakpane: easily adding tweak control for parameters.
   const params = {
     fps: 0.0,
     gaussian_multiplier: 1,
+    f16_preprocess: false,
+    tile_based: false,
     renderer: 'pointcloud',
     ply_file: '',
     cam_file: '',
@@ -86,6 +89,7 @@ export default async function init(
         const pc = await load(uploadedFile, device);
         pointcloud_renderer = get_renderer_pointcloud(pc, device, presentation_format, camera.uniform_buffer);
         gaussian_renderer = get_renderer_gaussian(pc, device, presentation_format, camera.uniform_buffer);
+        gaussian_renderer.set_params(params);
         renderers = {
           pointcloud: pointcloud_renderer,
           gaussian: gaussian_renderer,
@@ -120,8 +124,21 @@ export default async function init(
       params,
       'gaussian_multiplier',
       {min: 0, max: 1.5}
-    ).on('change', (e) => {
+    ).on('change', () => {
       //TODO: Bind constants to the gaussian renderer.
+      gaussian_renderer?.set_params(params);
+    });
+  }
+  {
+    pane.addInput(params, 'f16_preprocess', {
+      disabled: !device.features.has('shader-f16'),
+    }).on('change', () => {
+      gaussian_renderer?.set_params(params);
+    });
+  }
+  {
+    pane.addInput(params, 'tile_based').on('change', () => {
+      gaussian_renderer?.set_params(params);
     });
   }
 
@@ -149,8 +166,7 @@ export default async function init(
       params.fps=1.0/timeReturn()*1000.0;
       time();
       const encoder = device.createCommandEncoder();
-      const texture_view = context.getCurrentTexture().createView();
-      renderer.frame(encoder, texture_view);
+      renderer.frame(encoder, context.getCurrentTexture());
       device.queue.submit([encoder.finish()]);
     }
     requestAnimationFrame(frame);
